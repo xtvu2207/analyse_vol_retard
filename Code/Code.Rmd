@@ -1,0 +1,2825 @@
+---
+title: "Analyse des vols retardés par aéroport et par compagnie aérienne aux États-Unis pour les années 2022-2023"
+output:
+  html_document: 
+    toc: true
+    toc_float: true
+    toc_depth: 6
+    theme: yeti
+    df_print: kable
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = F)
+packages = c("tidyr", "dplyr", "ggplot2", "leaflet", 
+             "factoextra","cluster", 
+              "htmlwidgets", 
+             "plotly","reshape2","patchwork","heatmaply","knitr", 
+             "car","GGally","lmtest","gridExtra","tidyverse",
+             "olsrr","zoo","DT","bestNormalize","matlib","Matrix", "kableExtra",
+             "missMDA","reticulate","sandwich","forecast","FactoMineR","tseries",
+             "forecast","grid","Factoshiny")
+new_packages = packages[!(packages %in% installed.packages()[,"Package"])]
+
+if(length(new_packages) > 0) {
+  install.packages(new_packages, ask = FALSE)
+}
+lapply(packages, library, character.only = TRUE)
+
+use_python("/opt/anaconda3/bin/python3", required = TRUE)
+```  
+
+
+::: {style="text-align: center;"}
+*Projet réalisé par*
+
+**Xuan Tung VU**
+
+**Romain LAUNAY**
+
+Master 1 en Mathématiques Appliquées et Statistique\
+Université Clermont Auvergne\
+Année 2023/2024
+
+*Projet encadré par*
+
+**Andrzej STOS**
+:::
+
+## ***I/ Introduction***
+
+### **Personnes en charge : Xuan Tung Vu, Romain Launay**
+
+### **1) Contexte**
+
+Le réseau de transport aérien des États-Unis, un des plus grands et les plus fréquentés au monde, joue un rôle crucial dans la mobilité des personnes et le fonctionnement de l'économie, avec des millions de vols par an transportant des centaines de millions de passagers à l'intérieur et à l'extérieur du pays. En 2022 et 2023, la ponctualité des vols s'élevait à 77.55%, mais les retards demeurent un problème majeur : 7.18% étaient dus aux compagnies aériennes et 5.08% au système national d'aviation, sans compter les retards météorologiques moins fréquents mais perturbateurs (0.72%).
+
+Ces retards ne nuisent pas seulement à la satisfaction des clients, mais entraînent également des coûts supplémentaires pour les compagnies et des pertes économiques, notamment dans le tourisme et le commerce. Les causes de ces retards varient, allant des conditions météorologiques défavorables aux problèmes techniques et de sécurité. Minimiser ces retards est donc fondamental pour les compagnies aériennes, afin de réduire leur impact, améliorer la qualité du service et diminuer les pertes financières.
+
+### **2) Objectif**
+
+Dans le cadre de cette étude, nous nous attarderons sur les performances de ponctualité des compagnies aériennes et des aéroports à travers les États-Unis. En nous appuyant sur une analyse minutieuse des données fournies par le Bureau des Statistiques des Transports (BTS), notre objectif principal est d'identifier les acteurs clés, à savoir **les aéroports** et **les compagnies aériennes**, qui affichent des taux de retard significatifs. Nous chercherons également à comprendre les multiples facteurs sous-jacents à ces retards, qu'ils soient liés à la compagnie aérienne, à l'infrastructure aéroportuaire ou aux conditions météorologiques.
+
+Notre ambition ne se limite pas à une simple observation des retards de vol ; elle englobe également la création d'un modèle prédictif novateur. Ce modèle sera conçu pour estimer avec précision les taux de retard de vol, en prenant en compte le volume de trafic aérien, à la fois pour les aéroports et les compagnies aériennes concernées. En combinant l'analyse des données historiques avec des techniques de modélisation avancées, nous espérons fournir une méthode fiable pour anticiper les retards de vol, ce qui pourrait avoir un impact significatif sur la gestion des opérations aériennes et l'expérience des passagers.
+
+
+### **3) Les données**
+
+```{r, include=FALSE}
+df = read.csv("/Users/xuantungvu/Desktop/M1/S2/Projet tranversal/Air_delay/data/Airline_Delay_Cause2.csv")
+dim(df)
+```
+
+#### *a) Une vue ensemble*  
+
+La base de données, propriété au [Bureau of Transportation Statistics (BTS)](https://www.transtats.bts.gov/OT_Delay/OT_DelayCause1.asp?20=E), constitue une précieuse ressource documentant les performances des compagnies aériennes en matière de ponctualité, couvrant la période de **janvier 2022 à décembre 2023**. Cette base de données offre une vision détaillée des évènements pour chaque compagnie aérienne dans un aéroport spécifique, mois par mois. Elle enregistre avec minutie le volume total de vols ainsi que les incidents de retards, d'annulations et de détournements.
+
+Comprenant **38 950 observations** et articulée autour de **21 variables**, cette base de données catégorise les causes de retard, telles que les contraintes opérationnelles des compagnies, les intempéries, les problèmes liés au système national de l'espace aérien (NAS), les questions de sécurité, et les retards des avions en provenance. Cette compilation exhaustive s'avère indispensable pour l'analyse des tendances de retard, l'identification des vulnérabilités liées à certaines liaisons ou opérateurs, et elle soutient les efforts visant à améliorer la ponctualité dans l'aviation.
+
+L'exploration de cette base de données fournit une perspective holistique sur les défis rencontrés par l'industrie aérienne en matière de ponctualité, et elle servira de fondement solide pour notre analyse approfondie des performances des compagnies aériennes et des aéroports.  
+
+#### *b) Les varaibles*
+
+| Variable            | Type         | Description                                                                     |
+|---------------|---------------|------------------------------------------|
+| year                | Qualitative  | L'année de l'enregistrement des données                                         |
+| month               | Qualitative  | Le mois de l'enregistrement des données                                         |
+| carrier             | Qualitative  | Le code de la compagnie aérienne                                                |
+| carrier_name        | Qualitative  | Le nom complet de la compagnie aérienne                                         |
+| airport             | Qualitative  | Le code de l'aéroport                                                           |
+| airport_name        | Qualitative  | Le nom complet de l'aéroport                                                    |
+| arr_flights         | Quantitative | Le nombre de vols arrivés                                                       |
+| arr_del15           | Quantitative | Le nombre de vols arrivés avec un retard de plus de 15 minutes                  |
+| carrier_ct          | Quantitative | Le nombre de retards attribués à la compagnie aérienne                          |
+| weather_ct          | Quantitative | Le nombre de retards attribués aux conditions météorologiques                   |
+| nas_ct              | Quantitative | Le nombre de retards attribués au système national de l'espace aérien           |
+| security_ct         | Quantitative | Le nombre de retards attribués à la sécurité                                    |
+| late_aircraft_ct    | Quantitative | Le nombre de retards attribués à l'arrivée tardive d'un avion                   |
+| arr_cancelled       | Quantitative | Le nombre de vols annulés                                                       |
+| arr_diverted        | Quantitative | Le nombre de vols détournés                                                     |
+| arr_delay           | Quantitative | Le temps total de retard (en minutes)                                           |
+| carrier_delay       | Quantitative | Le temps de retard attribué à la compagnie aérienne (en minutes)                |
+| weather_delay       | Quantitative | Le temps de retard attribué aux conditions météorologiques (en minutes)         |
+| nas_delay           | Quantitative | Le temps de retard attribué au système national de l'espace aérien (en minutes) |
+| security_delay      | Quantitative | Le temps de retard attribué à la sécurité (en minutes)                          |
+| late_aircraft_delay | Quantitative | Le temps de retard attribué à l'arrivée tardive d'un avion (en minutes)         |
+
+Considérant notre objectif principal axé sur l'analyse des retards de vols, les variables `arr_cancelled` (vols annulés) et `arr_diverted` (vols détournés) sont jugées moins pertinentes pour notre étude. Par conséquent, nous avons décidé d'exclure ces deux variables de nos analyses futures. De plus, pour mener à bien une étude spécifique par aéroport et par compagnie aérienne, nous devons regrouper les données en fonction de ces deux critères dans la suite de notre travail.
+
+En éliminant ces variables moins pertinentes, nous nous concentrons sur les aspects spécifiques des retards de vol qui sont les plus significatifs pour notre analyse. Cette approche nous permettra d'obtenir des conclusions plus précises et plus exploitables concernant les performances de ponctualité des compagnies aériennes et des aéroports. Ensuite, en regroupant les données par aéroport et par compagnie aérienne, nous pourrons identifier les tendances spécifiques à chaque acteur, ce qui nous aidera à formuler des recommandations ciblées pour améliorer la ponctualité dans l'industrie aérienne.
+
+```{r, include=FALSE}
+df = df[, -which(names(df) %in% c("arr_cancelled", "arr_diverted"))]
+```
+
+## ***II/ Pré-traitement les données***  
+
+### **Personne en charge : Xuan Tung VU**
+
+### **1) Exploration préliminaire**
+
+On affiche les premières linges de la base de données :
+
+```{r, warning=FALSE}
+datatable(df[1:1000,],class = "hover cell-border compact",filter = 'top', options = list(
+            scrollX = TRUE,  # Active le défilement horizontal
+            pageLength = 5  # Nombre de lignes par page
+            
+            )
+          )
+```
+
+On observe que la majorité des variables sont structurées de manière adéquate, à l'exception notable de `airport_name`. En effet, le nom de l'aéroport contient également des informations sur le quartier, la ville, l'état et le nom de l'aéroport lui-même, ce qui pose le problème de la complexité dans les données. Il est donc essentiel de traiter et de normaliser ces données pour garantir une analyse cohérente et précise. Cela implique de séparer les composantes géographiques du nom de l'aéroport, d'uniformiser les formats et de traiter les cas de multiplicité pour rendre les données plus structurées et plus facilement analysables.
+
+On poursuit avec un résumé des statistiques descriptives pour chaque colonne :
+
+```{r}
+summary(df)
+```
+
+L'analyse des données sur les vols arrivés (`arr_flights`) montre une disparité significative dans nos enregistrements, avec un nombre de vols par enregistrement variant de 1 à 20084, une moyenne de 348.8 vols, et une médiane de 93. Cette distribution suggère que, bien que certains vols (ou, par extension, certains aéroports ou compagnies aériennes) connaissent un trafic élevé, la majorité des enregistrements portent sur un nombre réduit de vols, révélant ainsi une distribution asymétrique du volume de trafic.
+
+Concernant les retards (`arr_del15`), la moyenne est de 71 incidents par enregistrement, avec une médiane de 18, indiquant que, malgré une prédominance de faibles incidents de retard, des valeurs extrêmes pouvant atteindre jusqu'à 4142 retards signalent des situations exceptionnelles. Les principales causes de ces retards ont été identifiées comme étant des problèmes liés aux transporteurs (`carrier_ct`), au système national d'aviation (`nas_ct`), et aux arrivées tardives d'avions (`late_aircraft_ct`), avec des moyennes respectives de 25.38, 17.70, et 25.21. Les retards causés par les conditions météorologiques (`weather_ct`) et la sécurité (`security_ct`) sont moins fréquents.
+
+Les durées des retards, classées par différentes catégories (`arr_delay`, `carrier_delay`, `weather_delay`, `nas_delay`, `security_delay`, `late_aircraft_delay`), affichent une large gamme de valeurs, reflétant la diversité et la complexité des défis que doit relever le secteur de l'aviation pour maintenir la ponctualité des vols.
+
+
+
+
+### **2) Nettoyage les données**
+
+#### **a) Normalisation et structuration de la variable `airport_name`**
+
+Comme observé précédemment, la variable `airport_name` nécessite une restructuration pour répondre à nos besoins analytiques. Notre objectif est de transformer cette variable afin qu'elle adopte une forme adéquate. L'élément crucial de `airport_name` pour notre étude est le nom de l'aéroport, ce qui rend essentiel l'élimination de toute information superflue.
+
+Pour améliorer la visualisation des résultats dans la section [Résumé](#sec-résumé), il est également indispensable de disposer des coordonnées de latitude et de longitude pour chaque aéroport. Afin d'enrichir notre base de données, nous collecterons des informations supplémentaires depuis `airports.dat`, fourni par [OpenFlights](https://openflights.org/data.php). Ce fichier contient des détails sur les aéroports du monde entier. Nous filtrerons ces données pour ne conserver que les aéroports des États-Unis, identifiés par leur code IATA, incluant le nom de l'aéroport, la ville, ainsi que les coordonnées de latitude et de longitude.
+
+Cette démarche, visant à enrichir notre projet avec une diversité de langages de programmation tout en optimisant le temps d'exécution, sera implémentée en Python.
+
+```{python, echo= TRUE}
+import numpy as np
+import pandas as pd
+df = r.df
+airports_df = pd.read_csv('/Users/xuantungvu/Desktop/M1/S2/Projet tranversal/Air_delay/data/airports.dat', header=None)
+
+airports_df.columns = ['Airport_ID', 'Name', 'City', 'Country', 'IATA', 'ICAO', 'Latitude',
+                       'Longitude', 'Altitude', 'Timezone', 'DST', 'Tz_database_time_zone', 'Type', 'Source']
+airportname = df['airport']
+airports = []
+
+for iata_code in airportname:
+    airport_row = airports_df[airports_df['IATA'] == iata_code]
+    if not airport_row.empty:
+        airport_name = airport_row.iloc[0]['Name']
+        city =  airport_row.iloc[0]['City']
+        lon = airport_row.iloc[0]['Longitude']
+        lat = airport_row.iloc[0]['Latitude']
+        airports.append([iata_code, airport_name, city, lon, lat])
+        
+# La partie suivante est nécessaire car certains aéroports n'ont pas les informations requises, donc je dois compléter en recherchant manuellement ces coordonnées.
+    else:
+        if iata_code == 'EAR':
+            airports.append(
+                [iata_code, "Kearney Regional Airport","Kearney", -99.009003, 40.725112])
+        elif iata_code == 'XWA':
+            airports.append(
+                [iata_code, "Williston Basin International Airport","Williston", -103.6425, 48.2583])
+        elif iata_code == 'IFP':
+            airports.append(
+                [iata_code, "Laughlin/Bullhead International Airport","Bullhead City", -114.559, 35.1574])
+        else:
+            print(f"Aéroport avec le code IATA {iata_code} non trouvé.")
+            airports.append([iata_code,None, None, None, None])
+
+
+airports = pd.DataFrame(
+    airports, columns=["IATA Code", "Airport Name", "City", "Longitude", "Latitude"])
+
+airports = airports.drop_duplicates(subset=['IATA Code'], keep='first')
+```
+```{r}
+airports = py$airports
+```
+
+Nous procédons ensuite à la création d'un dataframe `airports_tous`, qui intègre toutes les variables du dataframe `df`. Ce nouveau dataframe est enrichi d'une colonne `Airport Name`, exclusivement dédiée aux noms des aéroports, ainsi que des colonnes `City`, `Longitude` et `Latitude`, issues du dataframe `airports`. La fusion est réalisée avec précision grâce à la fonction `merge` de R, garantissant ainsi l'intégrité et la structure adéquate des données. Afin de préserver l'ordre des données du dataframe `df`, nous avons ajouté une colonne `index` contenant les indices des observations. Cette colonne est ensuite retirée après avoir réorganisé les observations du dataframe `airports_tous` pour qu'elles correspondent à l'ordre original du dataframe `df`.
+
+De plus, après avoir récupéré les données, nous allons supprimer les colonnes `carrier` et `airport` car elles contiennent la même information que `carrier_name` et `airport_name`.
+
+```{r}
+
+df$index = seq.int(nrow(df))
+
+airports_tous = merge(df, airports, by.x = 'airport', by.y = 'IATA Code', all.x = TRUE)
+
+airports_tous = airports_tous[order(airports_tous$index), ]
+
+
+col_order = c(names(df)[-which(names(df) == 'index')], setdiff(names(airports_tous), names(df)))
+
+airports_tous = airports_tous[, col_order]
+
+
+airports_tous$index = NULL
+airports_tous$airport_name = airports_tous$`Airport Name`
+
+
+airports_tous = airports_tous[,-which(names(airports_tous) %in% c("Airport Name","carrier","airport"))] 
+rownames(airports_tous) = NULL
+```
+
+Par la suite, nous utilisons le dataframe `airports_tous` à la place de `df` pour poursuivre l'analyse. Visualisation cette nouvelle base de données :
+
+```{r}
+datatable(airports_tous[1:1000,],class = "hover cell-border compact",filter = 'top', options = list(scrollX = TRUE,pageLength = 5))
+```
+
+```{r}
+#airports_tous[airports_tous$airport_name == "Abraham Lincoln Capital Airport",]
+```
+
+#### **b) Les données manquant**
+
+-   Détecter  
+
+On commence par détecter les données manquant pour chaque variable dans la base de données. Le nombre d'observations manquantes dans chaque variable de la base de données est :
+
+```{r}
+missing_values = sapply(airports_tous, function(x) sum(is.na(x)))
+
+missing_data_df = data.frame(variable=names(missing_values), missing_count=missing_values)
+ggplot(missing_data_df, aes(x=variable, y=missing_count)) +
+    geom_bar(stat='identity', fill='red') +
+    theme_minimal() +
+    labs(y='Nombre de valeurs manquantes', x='Variable', title='Valeurs manquantes par variable') +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Nous constatons que plusieurs colonnes présentent des valeurs manquantes, chacune ayant 26 données absentes, à l'exception de la colonne `arr_del15` qui en compte 35. Les valeurs manquantes dans les colonnes concernées représentent environ 0,08 % du total des données. Étant donné ce faible pourcentage, ces absences ne devraient pas constituer un problème majeur. Il est possible que ces valeurs manquantes appartiennent toutes aux mêmes lignes (observations). Cependant, cette hypothèse ne peut être entièrement confirmée, car il existe 9 observations présentant des valeurs manquantes uniquement pour la variable `arr_del15` et non pour les autres variables.
+
+-   Traiter
+
+Pour traiter ces données manquantes, on utilise le processus automatisé offert par le package `missMDA`, développé par François Husson et Julie Josse. Ce package est spécialement conçu pour gérer les données manquantes dans les méthodes d'analyses factorielles. Il permet d'imputer les valeurs manquantes en utilisant des méthodes d'estimation fondées sur les algorithmes d'espérance-maximisation (EM). Afin de s'assurer que toutes les variables liées à un nombre de vols soient des entiers, il convient d'arrondir les résultats de l'imputation.
+
+```{r}
+list_quan = c("arr_flights","arr_del15", "carrier_ct", "weather_ct", 
+              "nas_ct", "security_ct","late_aircraft_ct","arr_delay",
+              "carrier_delay","weather_delay","nas_delay","security_delay",
+              "late_aircraft_delay" )
+df_quan = airports_tous[list_quan]
+ncomp = estim_ncpPCA(df_quan) 
+res.imp = imputePCA(df_quan, ncp = ncomp$ncp)$completeObs
+df_quan = round(as.data.frame(res.imp))
+airports_tous[list_quan] = df_quan 
+```
+
+Vérifier si les données sont bien traitées :
+
+```{r}
+missing_values = sapply(airports_tous, function(x) sum(is.na(x)))
+
+  missing_data_df = data.frame(variable=names(missing_values), missing_count=missing_values)
+  ggplot(missing_data_df, aes(x=variable, y=missing_count)) +
+    geom_bar(stat='identity', fill='red') +
+    theme_minimal() +
+    labs(y='Nombre de valeurs manquantes', x='Variable', title='Valeurs manquantes par variable') +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+#### **c) Détecter les valeur aberrants**   {#sec-va} 
+
+```{r}
+summary(airports_tous)
+```
+
+D'après ce résultat, on constate que les données semblent correctes, toutes les valeurs des variables quantitatives sont positives ou nulles, ce qui semble logique car il s'agit du nombre de vols et du nombre de minutes. Cependant, il y a une asymétrie dans les données ici. Voyons maintenant la distribution des variables par leur boîte à moustaches et par leur histogramme :
+
+```{r, echo=FALSE, include=FALSE}
+p = list()
+for (i in 1:13) {
+  p[[i]] = ggplot(df_quan, aes(x = df_quan[, i])) +
+    geom_boxplot() +
+    labs(x = NULL, y = NULL) +  
+    ggtitle(colnames(df_quan)[i]) +
+    theme(axis.text.x = element_blank(),  
+          axis.text.y = element_blank(),  
+          axis.ticks = element_blank())
+}
+
+grid.arrange(grobs = p , ncol = 3)
+```  
+
+```{r, fig.width= 10, fig.height= 10}
+par(mfrow = c(length(names(df_quan)), 2))
+
+for(var_name in names(df_quan)) {
+  par(mar = c(2, 2, 2, 2) + 0.1) 
+  boxplot(df_quan[[var_name]], horizontal = TRUE, main = var_name,
+          xlab = "", ylab = var_name, col = "lightgray", pch =20, size = 1)
+  
+  par(mar = c(2, 2, 0.6, 2) + 0.1)
+  hist(df_quan[[var_name]], freq = FALSE, main = "",
+       xlab = var_name, ylab = "Densité", col = "skyblue", border = "darkblue", axes = F)
+  lines(density(na.omit(df_quan[[var_name]])), col = "red", lwd = 1) 
+}
+```
+
+D'après les graphiques précédents, nous observons clairement des valeurs aberrantes et une distribution asymétrique vers la gauche pour toutes les variables quantitatives. Cela s'explique par le fait que le nombre de vols opérationnels varie significativement d'un aéroport à l'autre, dépendant largement de la taille de l'aéroport. Aux États-Unis, il existe des aéroports très grands, mais aussi des aéroports sur des îles ou des petits aéroports locaux. Cependant, si le nombre de vols arrivés est trop faible, cela peut réellement influencer notre analyse. Par conséquent, nous envisageons d'éliminer les lignes contenant de faibles valeurs pour chaque variable, c'est-à-dire les valeurs inférieures au 1er quartile pour chaque variable.
+
+```{r}
+filtrer_percentiles = function(data) {
+  p5 = quantile(data, 0.05)
+  return(data >= p5)
+}
+
+indices = sapply(df_quan, filtrer_percentiles)
+indices_global = apply(indices, 1, all)
+
+df_quan1 = df_quan[indices_global,]
+airports_tous1 = airports_tous[indices_global,]
+```
+
+Examinons maintenant la distribution de chaque variable quantitative après avoir éliminé les valeurs extrêmement faibles :
+
+```{r, fig.width= 10, fig.height= 10}
+par(mfrow = c(length(names(df_quan1)), 2))
+
+for(var_name in names(df_quan1)) {
+  par(mar = c(2, 2, 2, 2) + 0.1) 
+  boxplot(df_quan1[[var_name]], horizontal = TRUE, main = var_name,
+          xlab = "", ylab = var_name, col = "lightgray", pch =20, size = 1)
+  
+  par(mar = c(2, 2, 0.6, 2) + 0.1)
+  hist(df_quan1[[var_name]], freq = FALSE, main = "",
+       xlab = var_name, ylab = "Densité", col = "skyblue", border = "darkblue", axes = F)
+  lines(density(na.omit(df_quan1[[var_name]])), col = "red", lwd = 1) 
+}
+```
+
+Malgré une légère amélioration observée ici, la distribution des variables demeure asymétrique. Par conséquent, afin de procéder à la régression, nous devons effectuer une transformation pour rendre les variables plus symétriques.
+
+#### **d) Regrouper les données**
+
+Afin d'effectuer une analyse par aéroport et par compagnie aérienne, nous créons deux tables distinctes : l'une regroupée par aéroport et l'autre par compagnie aérienne. Pour chaque table, nous réalisons ensuite un regroupement supplémentaire par mois. Enfin, pour chaque groupe ainsi constitué, nous calculons la somme des variables quantitatives, en excluant certaines variables spécifiques telles que l'année, le nom de la compagnie aérienne, la longitude, la latitude et la ville. Voyons les premières lignes de ces tables:  
+
+
+-   1)`g_airp` (grouper par aéroport) :
+
+```{r, warning=FALSE}
+g_airp = airports_tous1 %>%
+  group_by(airport_name, year, month) %>%
+  summarise(across(!c(carrier_name, Longitude, Latitude, City), sum),
+            Longitude = first(Longitude),
+            Latitude = first(Latitude) ,
+            .groups = 'drop') #.groups = 'drop' est nécessaire pour grouper les données par plus de 1 variable
+datatable(g_airp,class = "hover cell-border compact",filter = 'top', options = list(scrollX = TRUE,pageLength = 5))
+
+```
+
+-   2)`g_airc` (grouper par compagnie aérienne) :
+
+```{r}
+g_airc = airports_tous %>%
+  group_by(carrier_name,year, month) %>%
+  summarise(across(!c(airport_name, Longitude, Latitude, City), sum),
+            Longitude = first(Longitude),
+            Latitude = first(Latitude),
+            .groups = 'drop')
+datatable(g_airc ,class = "hover cell-border compact",filter = 'top', options = list(scrollX = TRUE,pageLength = 5))
+write_csv(g_airc,"/Users/xuantungvu/Desktop/M1/S2/TS/g_airc.csv")
+```
+
+## ***II/ Analyse par aéroport***
+
+### **Personne en charge : Xuan Tung VU**
+
+Notre objectif dans cette étude des aéroports est de déterminer le pourcentage de vols retardés par aéroport et d'identifier les principales causes de ces retards, y compris les retards attribués à la compagnie aérienne, au système national d'aviation, aux retards liés à l'avion précédent, ainsi qu'aux conditions météorologiques. Nous envisageons également d'intégrer des données géographiques, telles que la longitude et la latitude de chaque aéroport, pour enrichir notre compréhension et faciliter d'éventuelles visualisations géospatiales. De plus, l'analyse portera sur le temps total de retard et sa répartition selon les différentes causes, offrant ainsi une vue d'ensemble claire sur les tendances et motifs des retards de vols à travers les différents aéroports. Nous réaliserons également des analyses multivariées, telles que l'Analyse en Composantes Principales (ACP), la classification par k-means, ainsi que la Classification Hiérarchique Ascendante (CAH). Enfin, nous développerons un modèle de régression pour examiner la relation entre le nombre de vols retardés et le nombre de vols arrivés. 
+
+**Pour une analyse géographique détaillée de ces aéroports, veuillez consulter la carte disponible dans la section [Résumer](#sec-résumer).**
+
+### **1) Analyse Descriptive**
+
+```{r }
+create_airport_summary = function(data, yea = NULL) {
+  if (!is.null(yea)) {
+    summary = data %>%
+      filter(year == yea) %>%
+      group_by(airport_name, year)
+  } else {
+    summary = data %>%
+      group_by(airport_name)
+  }
+  
+  summary = summary %>%
+    summarise(
+      nb_vol_arrive = sum(arr_flights),
+      nb_vol_retard = as.integer(sum(arr_del15)),
+      percen_r = round(nb_vol_retard * 100 / nb_vol_arrive),
+      `Compagnie aérienne` = round(sum(carrier_ct) * 100 / nb_vol_retard),
+      `Système national d'aviation` = round(sum(nas_ct) * 100 / nb_vol_retard),
+      `L'avion précédent` = round(sum(late_aircraft_ct) * 100 / nb_vol_retard),
+      `Sécurité` = round(sum(security_ct) * 100 / nb_vol_retard),
+      Météo = 100 - (`Compagnie aérienne` + `Système national d'aviation` + `L'avion précédent`),
+      `Temps Retard Total` = sum(arr_delay),
+      `Retard Compagnie` = round(sum(carrier_delay) * 100 / `Temps Retard Total`),
+      `Retard Météo` = round(sum(weather_delay) * 100 / `Temps Retard Total`),
+      `Retard NAS` = round(sum(nas_delay) * 100 / `Temps Retard Total`),
+      `Retard Sécurité` = round(sum(security_delay) * 100 / `Temps Retard Total`),
+      `Retard Vol Précédent` = 100 - (`Retard Compagnie` + `Retard Météo` + `Retard NAS` + `Retard Sécurité`),
+      `Moyenne de minutes de retard par vol de retard` = round(`Temps Retard Total` / nb_vol_arrive),
+      Longitude = first(Longitude),
+      Latitude = first(Latitude),
+      .groups = 'drop'  
+    )
+  
+  if ("year" %in% names(summary)){
+    summary = summary[, !names(summary) %in% "year"]
+  }
+  # si il y a aucun vol en retard, on remplacer tous les causes par 0 pour éviter les valeurs NA
+  for (i in 1:nrow(summary)){
+    if (summary$percen_r[i] == 0){
+      summary[i,c(3:8)] = 0
+      summary[i,15] = 0
+    } 
+  }
+  
+  return(summary)
+}
+
+airport_summary = create_airport_summary(g_airp)
+
+airport_summary_2022 = create_airport_summary(g_airp, 2022)
+
+airport_summary_2023 = create_airport_summary(g_airp, 2023)
+
+
+top_months_by_airport = g_airp %>%
+    group_by(airport_name, month) %>%
+    summarise(nb_vol_retard_mois = sum(arr_del15), .groups = 'drop') %>%
+    arrange(airport_name, desc(nb_vol_retard_mois)) %>%
+    group_by(airport_name) %>%
+    slice_max(order_by = nb_vol_retard_mois, n = 3) %>%
+    arrange(airport_name, month) %>%
+    summarise(Top_3_Mois = toString(month), .groups = 'drop')
+
+airport_summary = left_join(airport_summary, top_months_by_airport, by = "airport_name")
+
+
+airport_summary[which(airport_summary$Météo <0),][7] = 26
+airport_summary[which(airport_summary$Météo <0),][,9] = 0
+ajouter_taille_aeroport = function(df) {
+  if(!"nb_vol_arrive" %in% names(df)) {
+    stop("La colonne 'nb_vol_arrive' n'existe pas dans le dataframe.")
+  }
+
+  quantiles = quantile(df$nb_vol_arrive)
+  
+  df$taille = cut(df$nb_vol_arrive,
+                   breaks=c(-Inf, quantiles[2], quantiles[3], quantiles[4], Inf),
+                   labels=c("Petit", "Moyen", "Grand", "Très Grand"),
+                   include.lowest=TRUE)
+  
+  return(df)
+}
+airport_summary = ajouter_taille_aeroport(airport_summary)
+```
+ 
+
+
+#### **a) Analyser le nombre de vols retardés** {#nb_vol_r}
+
+
+
+Nous commençons par analyser le nombre de vols retardés par aéroport. Pour cette partie, nous analyserons les 10 aéroports ayant enregistré le plus grand nombre de vols retardés en 2022 et en 2023. Voici les 10 aéroports ayant enregistré le plus grand nombre de vols retardés de janvier 2022 à décembre 2023 :  
+
+
+```{r, fig.width= 10}
+a = airport_summary %>%
+    select(airport_name, nb_vol_retard, `Compagnie aérienne`, `Système national d'aviation`, `L'avion précédent`,Sécurité, Météo) %>%
+    arrange(desc(nb_vol_retard))
+
+
+top_airports = a[1:10, ]
+
+# Transformer les données en format long
+top_airports_long = top_airports %>%
+  pivot_longer(cols = c(`Compagnie aérienne`, `Système national d'aviation`, `L'avion précédent`,Sécurité, Météo), 
+               names_to = "Cause de retard", values_to = "Pourcentage") %>%
+  mutate(Nombre = nb_vol_retard * Pourcentage / 100) 
+
+ggplot(top_airports_long, aes(y = reorder(airport_name, nb_vol_retard), x = Nombre, fill = `Cause de retard`)) +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_minimal() +
+  labs(title = "Top 10 des aéroports par nombre de vols retardés avec répartition des causes",
+       x = "Nombre de vols retardés",
+       y = "Aéroport",
+       subtitle = "De janvier 2022 à décembre 2023") +
+  scale_fill_brewer(palette = "Spectral") +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1))
+```
+
+L'analyse des données relatives aux retards aériens pour les années 2022 et 2023 met en lumière la répartition des incidents au sein des grands aéroports internationaux des États-Unis. Trois groupes distincts émergent du top 10 de ces aéroports, chacun caractérisé par le volume de retards enregistrés, soulignant des dynamiques spécifiques à leur environnement opérationnel.
+
+**Premier Groupe** : Dominé par **Denver International Airport** avec 114 405 retards, suivi de **Dallas Fort Worth International Airport** qui compte 112 951 retards. Cette légère différence entre eux reflète les défis communs aux grands hubs aériens, notamment en termes de gestion du trafic et de coordination des opérations. La distance se creuse avec le troisième **Hartsfield Jackson Atlanta International Airport**, présentant un écart de plus de 6 000 retards. Les causes principales incluent des problèmes liés à l'avion précédent, aux compagnies aériennes, et au système national d'aviation. Notamment, les retards dus à la météo sont moins fréquents, avec un impact moyen de seulement 5%, tandis que les retards liés à la sécurité sont remarquablement absents de ce groupe.
+
+**Deuxième Groupe** : Mené par **Chicago O'Hare International Airport** avec 95 000 retards. Il est suivi de près par **McCarran International Airport** avec 95 355 retards et **Orlando International Airport** avec 84 044 retards. Les motifs de retard demeurent similaires à ceux du premier groupe, bien que la météo joue un rôle légèrement moins prononcé, étant responsable en moyenne de 3% des retards. Cela illustre la variabilité des impacts environnementaux et opérationnels d'un groupe à l'autre.
+
+**Troisième Groupe** : Comprend **Los Angeles International Airport**, **Charlotte Douglas International Airport**, **LaGuardia Airport**, et **Phoenix Sky Harbor International Airport**. Les écarts de retards entre ces aéroports sont plus réduits, avec une différence moyenne de 3 500 retards. La répartition des causes suit le modèle des groupes précédents, avec une légère augmentation des retards dus à la météo comparée au deuxième groupe, représentant en moyenne 4% du total. L'absence de retards attribués à des problèmes de sécurité est à nouveau observée, suggérant une gestion efficace ou une moindre prévalence de ces incidents.
+
+Cette segmentation révèle une corrélation claire entre le volume de trafic aérien et le nombre de retards enregistrés. Les grands aéroports internationaux, en raison de leur rôle central dans le réseau aérien mondial, sont naturellement plus exposés aux retards. Toutefois, cette analyse ne permet pas d'évaluer directement la performance opérationnelle des aéroports, car elle ne tient pas compte des facteurs extérieurs influençant les retards. En dépit de cela, l'absence de retards liés à la sécurité et la faible incidence des retards météorologiques reflètent des aspects positifs de la gestion aéroportuaire. Ces données soulignent l'importance des conditions climatiques adverses et des défis logistiques inhérents à la gestion des grands hubs aériens, tout en rappelant que les aéroports travaillent continuellement à minimiser les impacts négatifs sur les horaires de vol.  
+
+- **Distribution de la proportion de vols en retard**  
+
+Pour mieux comprendre la distribution des proportions de vols en retard en fonction de la taille des aéroports, nous classons ces derniers selon leur volume de trafic aérien. Cette classification est effectuée en utilisant les quartiles de la variable `arr_flights`, qui représente le nombre de vols arrivés. Les aéroports sont ainsi divisés en quatre catégories distinctes : Petit, Moyen, Grand, et Très Grand. Notre objectif est d'analyser et de comparer la ponctualité des vols selon la taille de l'aéroport. Nous cherchons à déterminer si la taille a un impact sur la proportion de vols en retard, notamment en examinant si les aéroports de petite taille présentent une plus grande proportion de retards.  
+
+Voyons le graphique de boîtes à moustaches qui concrétise l'analyse des proportions de vols en retard en fonction de la taille des aéroports :  
+
+```{r}
+ggplot(airport_summary, aes(x = taille, y = percen_r, fill = taille)) +
+  geom_boxplot() +
+  scale_fill_viridis_d() +
+  scale_x_discrete(labels = c("Petit (< 1438 vols arrivés)", 
+                              "Moyen (1443 - 4757 vols arrivés)", 
+                              "Grand (4764 - 21731 vols arrivés)", 
+                              "Très grand (> 22215 vols arrivés)")) +
+  labs(x = "",
+       y = "Pourcentage de vols en retard",
+       fill = "Taille",
+       title = "Distribution des vols en retard par taille d'aéroport",
+       subtitle = "En 2022 et 2023") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1),
+        legend.position = "none")
+```  
+
+
+
+D'après le graphique de boîte à moustaches précédemment observé, on note que les aéroports de grande taille présentent une proportion moyenne de vols en retard plus élevée mais avec une variabilité moins marquée, ce qui indique une performance plus stable. En effet, ces grands aéroports affichent un pourcentage de retards maximum ne dépassant pas 30%, contrairement aux petits aéroports où cette fréquence peut atteindre jusqu'à 41%. Cela suggère que, grâce à de meilleures infrastructures ou des processus de gestion plus efficaces, les grands aéroports sont capables de limiter les retards extrêmes et de gérer plus uniformément les incidents.
+
+Les statistiques descriptives de la proportion de vols en retard par taille d'aéroport sont présentées dans le tableau ci-dessous:
+
+|    **Mesure Statistique**    |    **Petit**    |    **Moyen**    |    **Grand**    |    **Très Grand**    |
+|------------------------|-----------|-----------|-----------|----------------|
+|    **Minimum**    |    6%    |    11%    |    13%    | 15%    |
+|    **1er Quartile**    |    14%    |    14%    |    17%    | 20%    |
+|    **Médiane**    |    16%    |    16%    |    19%    | 21%    |
+|    **Moyenne**    |    17.25%    |    16.73%    |    19.68%    | 21.1%    |
+|    **3ème Quartile**    |    19%    |    18%    |    21%    | 22%    |
+|    **Maximum**    |    41%    |    39%    |    39%    | 30%    |
+
+Cette distribution montre que les aéroports plus grands ne révèlent pas seulement un taux de retard moyen légèrement supérieur, mais également une plage de variation plus restreinte entre les quartiles, ce qui suggère une prévisibilité et une régularité supérieures dans la gestion des retards. En contraste, les petits aéroports, malgré un taux moyen de retards inférieur, présentent une plus grande dispersion dans ces retards, mettant en évidence une hétérogénéité marquée dans leur performance opérationnelle. Cette variabilité accrue chez les petits aéroports pourrait s'expliquer non seulement par des infrastructures moins développées ou des ressources de gestion limitées, mais aussi parce que ces aéroports accueillent moins de vols. Ainsi, un ou deux vols retardés peuvent significativement influencer le pourcentage de retards, rendant ces statistiques plus volatiles par rapport à des aéroports plus grands où le volume élevé de vols dilue l'impact des retards individuels. Et une analyse [ANOVA](#ANOVA) prévue ultérieurement permettra d'examiner plus en détail les différences entre les tailles d'aéroports et de déterminer si les variations observées dans les taux de retards sont statistiquement significatives, offrant une perspective enrichie sur l'influence de la taille de l'aéroport sur sa capacité à gérer les retards.
+
+#### **b) Analyser le nombre de minute de retard**  
+
+On poursuit avec une analyse sur le nombre de minutes de retard dans les aéroports. La performance d'un aéroport ne se mesure pas seulement par le pourcentage de vols en retard, mais aussi par le nombre total de minutes de retard accumulées et la moyenne des minutes de retard par vol. Un grand aéroport, avec un grand nombre de vols arrivant, peut avoir un grand nombre de vols en retard, mais cela ne signifie pas nécessairement que les minutes de retard ou la moyenne des minutes de retard par vol sont significatives dans cet aéroport.  
+
+- **Classer par le nombre de minutes de retard accumulées**  
+
+Ainsi, nous allons identifier les 10 aéroports ayant accumulé le plus grand nombre de minutes de retard en 2022 et en 2023. Ensuite, nous comparerons cette liste aux 10 aéroports ayant le plus grand nombre de vols en retard. L'objectif est de déterminer si les mêmes aéroports figurent dans les deux listes, ce qui pourrait indiquer une corrélation entre le nombre de vols en retard et le nombre total de minutes de retard.  
+
+Voyons les graphiques de top 10 des aéroports par nombre de minutes retardés sur l'ensemble des deux années :   
+
+```{r, fig.width=10}
+d = airport_summary %>%
+  arrange(desc(`Temps Retard Total`))
+top_airports = d[1:10,]
+top_airports_long = top_airports %>%
+  pivot_longer(cols = c(`Retard Compagnie`, `Retard Météo`, `Retard NAS`,`Retard Sécurité`,`Retard Vol Précédent`), 
+               names_to = "Cause de retard", values_to = "Pourcentage") %>%
+  mutate(Nombre = `Temps Retard Total` * Pourcentage / 100) 
+
+ggplot(top_airports_long, aes(y = reorder(airport_name, `Temps Retard Total`), x = Nombre, fill = `Cause de retard`)) +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_minimal() +
+  labs(title = "Top 10 des aéroports par nombre de minutes retardés avec répartition des causes",
+       x = "Minutes",
+       y = "Aéroport",
+       subtitle = "De janvier 2022 à décembre 2023") +
+  scale_fill_brewer(palette = "Spectral") +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1))
+```
+
+
+
+Au cours des années 2022 et 2023, l'analyse des retards dans les principaux aéroports a révélé des tendances intéressantes, soulignant les défis de gestion des retards aériens. Une attention particulière a été portée à **Dallas Fort Worth International Airport** et **Hartsfield Jackson Atlanta International Airport**, ainsi qu'à leurs comparaisons avec d'autres aéroports majeurs comme **Denver International Airport** et **Phoenix Sky Harbor International Airport**.
+
+**Dallas Fort Worth International Airport** s'est distingué nettement, accumulant près de 10 millions de minutes de retard. Cette performance le place bien au-dessus de **Hartsfield Jackson Atlanta International Airport**, qui, malgré sa seconde position, enregistre presque 8 millions de minutes de retard, soit 20 % de moins que Dallas. La significative différence de volume de retards entre ces deux aéroports met en lumière les défis spécifiques rencontrés par Dallas, notamment en termes de durée des retards.
+
+Toutefois, une analyse approfondie du nombre de vols retardés révèle que **Dallas Fort Worth International Airport** en compte effectivement moins que **Denver International Airport**, suggérant des performances opérationnelles variées. Denver semble avoir une meilleure gestion des incidents, conduisant à moins de minutes de retard accumulées malgré un nombre plus élevé de vols retardés. Cette observation indique que, bien que moins fréquents à Dallas, les retards qui y surviennent tendent à être exceptionnellement longs, mettant en évidence une difficulté particulière à résoudre rapidement les incidents.
+
+En ce qui concerne **Hartsfield Jackson Atlanta International Airport**, bien qu'il dépasse **Denver International Airport** en termes de minutes totales de retard, l'écart de 15 000 minutes sur les deux années analysées n'est pas jugé très significatif. Cela illustre la compétition serrée entre les grands aéroports pour la gestion des retards.
+
+Par ailleurs, **Phoenix Sky Harbor International Airport** figure dans le top 10 pour le nombre de vols retardés mais n'apparaît pas parmi les aéroports avec le plus grand total de minutes de retard. Cela indique que, bien que fréquents, les retards à Phoenix sont généralement de courte durée. À l'inverse, **John F Kennedy International Airport**, absent du top 10 des aéroports pour le nombre de vols retardés, se distingue néanmoins par un volume important de minutes de retard, soulignant une tendance à des retards plus longs lorsqu'ils se produisent.
+
+Les observations mentionnées précédemment s'alignent avec les analyses effectuées dans la section [analyse du nombre de vols retardés](#nb_vol_r), révélant que les principaux facteurs de retard sont liés aux compagnies aériennes, aux vols antérieurs, et aux opérations aéroportuaires. À l'inverse, l'impact des conditions météorologiques sur le cumul total des retards apparaît restreint, soulignant ainsi le rôle prépondérant des éléments opérationnels dans la gestion des retards. Par ailleurs, il est notable qu'aucune minute de retard durant ces deux années n'a été associée à des raisons de sécurité, confirmant l'efficacité des mesures de sécurité en place.
+
+- **Classer par la moyenne des minutes de retard par vol**  
+
+Une approche complémentaire consiste à évaluer les aéroports selon la moyenne de minutes de retard par vol arrivé. Cette méthode permet d'identifier les aéroports où, bien que les retards puissent être moins fréquents, leur durée est particulièrement importante. L'objectif de cette analyse est de reconnaître non seulement les aéroports régulièrement affectés par des retards, mais également ceux où les retards sont significativement prolongés. Cette analyse couvrira les années 2022 et 2023, ainsi que l'intégralité de cette période.
+
+Nous examinerons par la suite des graphiques qui illustrent les 10 aéroports affichant la plus haute moyenne de minutes de retard par vol arrivé.  
+
+- En 2022  
+
+```{r, fig.width=10}
+top_airports = airport_summary_2022 %>%
+  arrange(desc(`Moyenne de minutes de retard par vol de retard`)) %>%
+  slice(1:10)
+ggplot(top_airports, aes(y = reorder(airport_name, `Moyenne de minutes de retard par vol de retard`), x = `Moyenne de minutes de retard par vol de retard`, fill = airport_name)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = nb_vol_arrive), position = position_dodge(width = 1), vjust = 0.5, hjust = -0.5) +
+  theme_minimal() +
+  labs(title = "Top 10 des aéroports par moyenne de minutes de retard par vol arrivé",
+       x = "Moyenne de minutes de retard",
+       y = "Aéroport",
+       fill = "Aéroport",
+       subtitle = "De janvier 2022 à décembre 2022") +
+  theme(legend.position = "none")+
+  scale_x_continuous(limits = c(0, 35))
+#top_airports[,c("airport_name","nb_vol_arrive","Moyenne de minutes de retard par vol de retard")]
+```  
+
+Parmi les aéroports à fort trafic, **Orlando Sanford International Airport**, avec 9 166 vols arrivés, et **St Petersburg Clearwater International Airport**, avec 7 829 vols, affichent des moyennes de retard de 25 et 24 minutes respectivement. Ces chiffres sont impressionnants compte tenu du volume élevé de trafic, indiquant une gestion de retard efficace. À l'opposé, **Charlotte County Airport** se distingue malgré un nombre de vols arrivés légèrement inférieur, à 6 152, par une moyenne de retard plus élevée de **33 minutes**, signalant des défis spécifiques dans la gestion des retards qui pourraient être attribués à divers facteurs opérationnels ou environnementaux.
+
+Dans la catégorie des volumes de trafic moyens, **Aspen-Pitkin Co/Sardy Field** traite 6 464 vols avec une moyenne de retard de 25 minutes, montrant une efficacité comparable à celle des aéroports à plus fort trafic. Cependant, **Rafael Hernandez Airport**, bien que recevant seulement 2 385 vols, présente un retard moyen de **29 minutes**. Cette observation suggère que le nombre de vols n'est pas le seul facteur déterminant les performances d'un aéroport en matière de gestion des retards.
+
+Pour les aéroports traitant un nombre modeste de vols, comme **Sawyer International Airport** (1 074 vols) et **Mercedita Airport** (832 vols), avec des moyennes de retard de 26 et 24 minutes respectivement, jusqu'à **Eastern Sierra Regional Airport**, qui, avec seulement 321 vols arrivés, enregistre un retard moyen de **28 minutes**, il est évident que les petits aéroports font également face à des défis significatifs. Ces chiffres révèlent que les aéroports de toutes tailles peuvent éprouver des difficultés à gérer les retards, soulignant l'importance d'une approche personnalisée à la gestion du trafic et des opérations aéroportuaires.
+
+- En 2023  
+
+```{r, fig.width=10}
+top_airports = airport_summary_2023 %>%
+  arrange(desc(`Moyenne de minutes de retard par vol de retard`)) %>%
+  slice(1:10)
+ggplot(top_airports, aes(y = reorder(airport_name, `Moyenne de minutes de retard par vol de retard`), x = `Moyenne de minutes de retard par vol de retard`, fill = airport_name)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = nb_vol_arrive), position = position_dodge(width = 1), vjust = 0.5, hjust = -0.5) +
+  theme_minimal() +
+  labs(title = "Top 10 des aéroports par moyenne de minutes de retard par vol arrivé",
+       x = "Moyenne de minutes de retard",
+       y = "Aéroport",
+       fill = "Aéroport",
+       subtitle = "De janvier 2023 à décembre 2023") +
+  theme(legend.position = "none")+
+  scale_x_continuous(limits = c(0, 56))
+#top_airports[,c("airport_name","nb_vol_arrive","Moyenne de minutes de retard par vol de retard")]
+```  
+
+À la suite de l'analyse du graphique, il est notable qu'en 2023:
+
+Avec le **Santa Maria Pub/Capt G Allan Hancock Field** traitant seulement 66 vols mais affichant une moyenne de retard exceptionnellement élevée de 55 minutes, 2023 souligne comment des volumes de trafic très faibles ne prémunissent pas contre les retards significatifs, suggérant des défis opérationnels ou environnementaux uniques à cet aéroport. Cette observation contraste avec la tendance générale de 2022, où les petits aéroports n'avaient pas nécessairement les retards moyens les plus élevés.
+
+Pour les aéroports de taille moyenne comme **Provo Municipal Airport** et **Trenton Mercer Airport**, avec 2028 et 2249 vols respectivement, les différences dans les moyennes de retard, 40 minutes pour Provo et 24 minutes pour Trenton, illustrent l'impact des stratégies de gestion du trafic et des capacités opérationnelles sur les performances en matière de retards. Les aéroports **Mercedita**, **Joplin Regional**, et **Rafael Hernandez**, avec un volume de trafic variant de 1095 à 2893 vols, et des moyennes de retard allant de 28 à 30 minutes, montrent une gestion relativement constante des retards par rapport à leur volume de trafic.
+
+Enfin, pour les aéroports à fort trafic, **Orlando Sanford International Airport** et **Charlotte County Airport** démontrent une gestion remarquable des retards avec 9103 et 5951 vols arrivés et des moyennes de retard de 26 et 23 minutes respectivement. Orlando Sanford maintient sa performance malgré un haut volume de trafic, tandis que Charlotte County améliore significativement sa gestion des retards par rapport à 2022.
+
+
+ - En 2022 et 2023  
+
+```{r, fig.width=10}
+top_airports = airport_summary %>%
+  arrange(desc(`Moyenne de minutes de retard par vol de retard`)) %>%
+  slice(1:10)
+ggplot(top_airports, aes(y = reorder(airport_name, `Moyenne de minutes de retard par vol de retard`), x = `Moyenne de minutes de retard par vol de retard`, fill = airport_name)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = nb_vol_arrive), position = position_dodge(width = 1), vjust = 0.5, hjust = -1) +
+  theme_minimal() +
+  labs(title = "Top 10 des aéroports par moyenne de minutes de retard par vol arrivé",
+       x = "Moyenne de minutes de retard",
+       y = "Aéroport",
+       fill = "Aéroport",
+       subtitle = "De janvier 2022 à décembre 2023") +
+  theme(legend.position = "none")+
+  scale_x_continuous(limits = c(0, 36))
+
+write_csv (top_airports[,c("airport_name","Moyenne de minutes de retard par vol de retard","nb_vol_arrive")],"/Users/xuantungvu/Desktop/M1/S2/Projet tranversal/Air_delay/data/s.csv")
+```  
+
+
+
+Sur l'ensemble des deux années analysées, le **Santa Maria Pub/Capt G Allan Hancock Field** se démarque par une moyenne de retard de 34 minutes malgré un nombre restreint de vols arrivés, indiquant des défis opérationnels spécifiques ou des conditions exceptionnelles impactant cet aéroport. Cette situation contraste nettement avec celle d'aéroports tels que **Orlando Sanford International Airport** et **Aspen-Pitkin Co/Sardy Field**, qui, malgré un volume de trafic conséquent — respectivement 18 269 et 13 055 vols arrivés —, ont réussi à maintenir des moyennes de retard modérées de 26 et 23 minutes. Cette performance souligne l'efficacité de leurs stratégies de gestion des retards, adaptées à des environnements à forte densité de trafic.
+
+D'autres aéroports, comme le **Provo Municipal Airport**, avec une moyenne de 33 minutes de retard pour 3 314 vols, et le **Charlotte County Airport**, avec 28 minutes sur 12 103 vols, montrent l'étendue de la variation dans la gestion des retards en fonction du volume de trafic et d'autres facteurs déterminants tels que les conditions météorologiques et les contraintes opérationnelles. Le **Mercedita Airport** et le **Rafael Hernandez Airport**, présentant tous deux des moyennes de retard de 28 minutes mais avec des volumes de trafic différents, illustrent le caractère persistant des défis liés aux retards, affectant les aéroports de toutes dimensions.
+
+Les aéroports accueillant moins de trafic, tels que l'**Eastern Sierra Regional Airport**, le **Joplin Regional Airport**, et le **Shenandoah Valley Regional Airport**, sont également confrontés à d'importants retards, avec des moyennes oscillant entre 25 et 26 minutes, ce qui prouve que les retards sont indifférents à la taille de l'aéroport. 
+
+Cette analyse détaillée montre que, bien que le volume de trafic puisse avoir un impact sur les moyennes de retard, d'autres facteurs tels que les conditions météorologiques locales, les capacités opérationnelles et les stratégies de gestion du trafic jouent un rôle crucial. Elle confirme la nécessité pour les aéroports de développer des stratégies sur mesure pour optimiser la gestion des retards, améliorant ainsi l'expérience des passagers et la performance opérationnelle globale.  
+
+
+#### **c)  Analyse de la distribution mensuelle des vols retardés dans les quatre plus grands aéroports** 
+
+Examinons la distribution mensuelle des vols retardés dans les quatre aéroports enregistrant le plus grand nombre de retards :
+```{r, fig.width=10}
+df_agg = aggregate(arr_del15~ airport_name, data = airports_tous, FUN = sum)
+
+df_agg = df_agg[order(df_agg$arr_del15, decreasing = TRUE), ]
+
+top_airports = df_agg$airport_name[1:4]
+df_top = airports_tous[airports_tous$airport_name %in% top_airports, ]
+
+names(df_top)[2] = "Mois"
+
+ggplot(df_top, aes(x = Mois, y = arr_del15, fill = Mois)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~airport_name, scales = "free") +
+  scale_x_discrete(limits = c("Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre")) +
+  labs(title = "Nombre de vols retardés par mois pour top quatre aéroports en 2022 et 2023",
+       x = "Mois",
+       y = "Nombre de vols retardés") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```  
+
+L'analyse du graphique indique une tendance à l'accumulation des retards de vols durant les périodes festives, moments où le trafic aérien est habituellement plus intense. Il apparaît que chaque aéroport présente un profil de retard spécifique, influencé par des facteurs locaux. On observe en général une augmentation progressive des retards dès janvier, atteignant un sommet en juin et juillet, période correspondant vraisemblablement aux vacances d'été et à une intensification des voyages. Cette tendance décroît légèrement en fin d'année, ce qui pourrait suggérer une amélioration dans la gestion des horaires de vols ou une diminution du volume de trafic aérien. Cependant, une nouvelle hausse des retards est notée en décembre, durant la période des fêtes. Cette observation remet en question l'hypothèse d'une amélioration de la gestion des vols. La réalité semble être que, entre septembre et décembre, le nombre de vols diminue, et en décembre, avec l'arrivée des vacances, le besoin de déplacements augmente, entraînant par conséquent une hausse des retards. Pour une analyse plus détaillée sur la dimension temporelle, voir [Analyse par dimension temporelle](#temps).  
+
+#### **d) Résumer**  {#sec-résumer}
+
+Pour synthétiser toutes les analyses relatives aux retards de vols dans chaque aéroport aux États-Unis, j'ai développé une visualisation interactive innovante. Cette approche utilise une fonction spécialement conçue pour cartographier graphiquement les retards sur une carte, avec des marqueurs dont la dimension reflète le pourcentage de vols retardés par aéroport. Cette stratégie visuelle permet une appréhension directe de l'impact des retards à travers différents lieux, offrant ainsi une vue d'ensemble sur la ponctualité des aéroports à l'échelle nationale.
+
+Les marqueurs, au-delà de leur aspect visuel représentant la fréquence des retards, sont dotés de popups interactifs qui se déclenchent au clic. Ces popups détaillent les mois les plus impactés par les retards pour l'aéroport concerné, offrant un éclairage précis sur les moments les plus critiques. De plus, ces informations sont complétées par une analyse succincte des causes principales de retard, englobant les difficultés rencontrées par les compagnies aériennes, les enjeux du contrôle du trafic aérien, les problématiques de sécurité, les conditions météorologiques adverses, ainsi que les conséquences des retards accumulés par les vols antérieurs.  
+
+Dans cette carte, le rayon des bulles représente le nombre de vols arrivant dans un aéroport. Plus ce nombre est élevé (et plus la taille de l'aéroport est grande), plus la bulle est grande. La couleur des bulles indique le pourcentage de vols en retard : une couleur claire signifie un pourcentage élevé de retards, tandis qu'une couleur foncée indique un faible pourcentage de vols en retard. Voyons ce graphique :  
+
+
+
+```{r, fig.width = 9}
+min_radius = 15
+max_radius = 40
+color_palette = colorNumeric(palette = viridis(100), domain = airport_summary$percen_r)
+
+ajout_markers = function(map, data, offset) {
+  
+  max_pvr = max(data$nb_vol_arrive, na.rm = TRUE)
+  min_pvr = min(data$nb_vol_arrive, na.rm = TRUE)
+  
+  data = data %>%
+    mutate(Longitude = Longitude + offset) %>%
+    mutate(radius = pmax(pmin(
+      (nb_vol_arrive - min_pvr) / (max_pvr - min_pvr) * (max_radius - min_radius) + min_radius, 
+      max_radius), min_radius),color = color_palette(percen_r))
+
+  map = map %>%
+    addCircleMarkers(data = data,
+                     lng = ~Longitude, lat = ~Latitude,
+                     radius = ~radius,
+                     color = ~color,
+                     stroke = FALSE,
+                     fillOpacity = 0.6,
+                     popup= ~ paste(
+                        "<b>Aéroport :</b>", airport_name,"<br>", 
+                        "<br>Les mois avec le plus de retards :",Top_3_Mois,"<br>",
+                        "<br>Nombre total de vols arrivés :",nb_vol_arrive,"<br>",
+                        "<br><b>Retards :</b> ", percen_r, "% des vols <br>",
+                        "<b>Causes :</b>",
+                        "<ul><li>Compagnie : ", `Compagnie aérienne`, "%</li>",
+                        "<li>Navigation : ", `Système national d'aviation`, "%</li>",
+                        "<li>Vol précédent : ", `L'avion précédent`, "%</li>",
+                        "<li>Sécurité : ", `Sécurité`, "%</li>",
+                        "<li>Météo : ", Météo, "%</li></ul>",
+                        "<br><b>Total minutes retard :</b> ", `Temps Retard Total`,
+                        "<br><b>Durée moyenne de retard par vol :</b> ", `Moyenne de minutes de retard par vol de retard`,"minutes <br>",
+                        "<br><b>Cause :</b>",
+                        "<ul><li>Compagnie : ", `Retard Compagnie`, "%</li>",
+                        "<li>Navigation : ", `Retard NAS`, "%</li>",
+                        "<li>Vol précédent : ", `Retard Vol Précédent`, "%</li>",
+                        "<li>Sécurité : ", `Retard Sécurité`, "%</li>",
+                        "<li>Météo : ", `Retard Météo`, "%</li></ul>"
+                        
+                        )
+                     )
+  return(map)
+}
+
+latitude_initial = airport_summary$Latitude[which.max(airport_summary$percen_r)]
+longitude_initial = airport_summary$Longitude[which.max(airport_summary$percen_r)]
+
+
+ma_carte = leaflet(width = 912, height = 600) %>%
+  addProviderTiles(providers$OpenStreetMap)
+  
+
+ma_carte = ajout_markers(ma_carte, airport_summary, 0)
+
+# Ajout des marqueurs pour les répétitions à gauche et à droite
+offsets = seq(-720, 720, by = 360)
+for (offset in offsets) {
+  ma_carte = ajout_markers(ma_carte, airport_summary, offset)
+}
+
+ma_carte = setView(lng = longitude_initial, lat = latitude_initial, zoom = 4, map = ma_carte)
+
+# faire une fonction lorsqu'on clique sur le bouton, la carte revienne à une position initiale
+onClickJS = sprintf(
+  "function(btn, map){ map.setView([%s, %s], 4); }", 
+  latitude_initial, longitude_initial
+)
+
+ma_carte = addEasyButton(
+  map = ma_carte,
+  button = easyButton(
+    icon = "fa-globe",
+    title = "Zoom initial",
+    onClick = JS(onClickJS)
+  )
+)
+ma_carte
+```  
+
+
+
+
+
+### **2) Analyse Multidimensionnelle et Classification** {#sec-classi}
+
+
+```{r}
+g_airp_t = g_airp %>%
+  group_by(airport_name) %>%
+  summarise(across(!c(year,Longitude, Latitude, month), sum),
+            Longitude = first(Longitude),
+            Latitude = first(Latitude) ,
+            .groups = 'drop') 
+
+quan_airp = g_airp_t[,list_quan]
+```
+
+
+#### **a) ACP**
+
+Réalisons une analyse en composantes principales (ACP) et interprétons leurs résultats.  
+
+#### *a.1) Variance des variables*  
+
+Analyse la variance des variables pour déterminer si une réduction du nombre de variables est nécessaire. Si la variance entre les variables présente des différences trop importantes, il est essentiel de réduire les données afin d'éviter les biais dans l'ACP. Pour simplifier les calculs, on centre les variables.  
+
+Variance des variables est :  
+
+
+```{r}
+g = t(data.frame(`Variance` = apply(quan_airp, 2, var)))
+datatable(g,class = "hover cell-border compact",filter = 'top', options = list(scrollX = TRUE,pageLength = 5))
+```
+
+On observe que la variance des variables est vraiment différente, donc on réalise ensuite une ACP en centrant et réduisant les données.   
+
+#### *a.2) Pourcentage d'information*  
+
+Voyons maintenant le pourcentage d'information des axes :  
+
+```{r}
+ACP = prcomp(quan_airp, center = TRUE, scale. = TRUE)
+pourcentage_info = ACP$sdev^2
+
+pour_info_cumsum = cumsum(round(pourcentage_info / sum(pourcentage_info),4))
+
+names(pour_info_cumsum) = paste('Axe',1:ncol(quan_airp), sep = " ")
+
+
+data = data.frame(Axes = names(pour_info_cumsum), Pourcentage_Cumulé = pour_info_cumsum)
+
+data$Axes = factor(data$Axes, levels = data$Axes) # c'est necessaire car on defini axes X par les modalites "Axes 1, Axes 2, .....", si non les bar de % information n'est pas bien dans ordre
+
+p = ggplot(data, aes(x = Axes, y = Pourcentage_Cumulé, text = paste(Axes, ": ", round(Pourcentage_Cumulé, 2), "%"))) + 
+  geom_bar(stat = "identity", fill = "#00AFBB") +
+  scale_x_discrete() + # changer le nom des axes en factors est necesaire pour utiliser ici
+  theme_minimal() + 
+  labs(x = "Axes", y = "% d'information", 
+       title = "Pourcentage d'information cumulé par axe principal")
+
+p_plotly = ggplotly(p, tooltip = "text")
+p_plotly
+```
+
+D'après ce graphique, on observe que la première composante principale (axe 1) domine largement, expliquant à elle seule 93.36% de la variance totale des données. Cette prépondérance de l'axe 1 indique qu'une grande partie de l'information contenue dans l'ensemble des variables peut être résumée par cette unique dimension, soulignant ainsi l'existence de corrélations fortes entre plusieurs des variables originales. Les composantes suivantes, bien qu'elles contribuent progressivement moins à la variance totale (avec l'axe 2 à 2.943% et l'axe 3 à 2.149%), ajoutent des nuances et des détails supplémentaires à l'interprétation des données, mais leur contribution marginale diminue rapidement. À partir de l'axe 4, la contribution à la variance devient substantiellement faible, illustrant le phénomène de diminution des rendements en termes d'information ajoutée par chaque composante supplémentaire. La proportion cumulative de la variance expliquée atteint quasiment 100% avec les onze premières composantes, ce qui suggère que ces composantes capturent l'essentiel de la structure des données.  
+
+
+D'un point de vue mathématique, ce phénomène peut être expliqué par la corrélation entre les variables dans la matrice X, matrice utilisée pour réaliser l'ACP. Si les variables sont corrélées entre elles, alors le rang de la matrice X diffère du nombre de variables, ce qui signifie que la matrice X contient des valeurs propres nulles. Effectivement, cela est compréhensible car dans notre donnée, toutes les variables liées au nombre de vols peuvent être calculées à partir de `arr_flights` et toutes les variables liées au nombre de minutes de retard peuvent être calculées à partir de `arr_delay`. Donc, il est normal de trouver des valeurs propres nulles ici.  
+
+Alors, nous n'avons besoin de projeter les individus que sur les deux premiers axes, cela nous donne déjà 96% d'information.  
+
+#### *a.3) Cercle de corrélation*  
+
+Maintenant, on interprète le cercle de corrélation entre les variables originales et les deux premiers composants principaux :  
+
+```{r}
+cor_mat = cor(quan_airp, as.data.frame(ACP$x))
+correlations = sqrt(cor_mat[, 1]**2 + cor_mat[,2]**2)
+
+pca_plot = fviz_pca_var(ACP, col.var = correlations, repel = TRUE)
+
+# Ajustez la palette de couleurs pour refléter l'intervalle des corrélations
+pca_plot = pca_plot + scale_color_gradient2( mid= "#00AFBB", high = "#FC4E07", midpoint = 0, limits = c(0, 1), name = "Cosinus carré")
+
+pca_plot
+```    
+
+
+
+Les variables montrent une forte corrélation avec le premier axe, révélant ainsi une représentation adéquate par ce dernier, ainsi qu'une corrélation positive entre elles. Le premier axe semble incarner **le nombre de vols arrivés**, une interprétation soutenue par le constat qu'une augmentation des vols arrivés entraîne également une augmentation notable du nombre de vols retardés, du total des minutes de retard, et de la distribution des causes de ces retards.
+
+Quant au deuxième axe, les variables `security_ct` et `security_delay` se situent à proximité, suggérant que cet axe pourrait illustrer la **variation des incidents de sécurité**. Les valeurs négatives sur cet axe pourraient refléter une gestion ou un impact des incidents de sécurité inférieurs à la moyenne, tandis que les valeurs positives pourraient signifier des incidents de sécurité ayant un impact plus élevé que la moyenne sur les activités aéroportuaires.
+
+
+#### *a.4) Qualité de projection des individus sur les axes 1 et 2*  
+
+Voyons maintenant la qualité de projection des aéroports sur les axes 1 et 2 :  
+
+```{r}
+
+scores = ACP$x
+
+distances_carrees = rowSums(scores^2)
+
+cos2 = sweep(scores^2, 1, distances_carrees, "/")
+
+head(cos2[,1:2])
+```  
+
+
+#### *a.5) Projeter les individus sur les axes 1 et 2*
+
+Maintenant, nous présentons le nuage de points représentant la projection des individus sur les axes 1 et 2. De plus, nous ajustons la taille des points selon leur qualité de projection (coefficient cosinus carré). Ceci est réalisé à l'aide de `ggplotly` pour ajouter de l'interactivité au graphique. Nous ajoutons également un texte informatif qui apparaît lorsqu'on survole chaque point, incluant le nom de l'aéroport.  
+
+```{r}
+df_acp = data.frame(ACP$x, `Airport` = unique(g_airp$airport_name))
+
+df_acp$Cos2_Axe1 = cos2[, 1]
+df_acp$Cos2_Axe2 = cos2[, 2]
+
+df_acp$Size = sqrt(cos2[, 1]**2 + cos2[, 2]**2)
+
+df_acp$Tooltip_Info = paste(df_acp$Airport,
+                            "<br>Cos2 Axe 1: ", round(df_acp$Cos2_Axe1, 4), 
+                            "<br>Cos2 Axe 2: ", round(df_acp$Cos2_Axe2, 4))
+
+# Mise à jour du graphique avec ggplot
+p = ggplot(df_acp, aes(x = PC1, y = PC2, size = Size, text = Tooltip_Info)) + 
+  geom_point() +
+  labs(x = "Nombre de vols arrivés", y = "Variation des incidents de sécurité", title = "Visualisation ACP sur 2 axes") +
+  theme_minimal() +
+  guides(size = "none") 
+ggplotly(p, tooltip = "text")
+```  
+
+D'après ce graphique, on observe que les aéroports projetés proches du centre d'origine (0,0) sont probablement mal projetés. Par exemple, `Albuquerque International Sunport`, `Richmond International Airport` ou `Reno Tahoe International Airport`, qui présentent un cosinus carré très faible sur les deux axes, sont donc mal projetés. En revanche, les aéroports tels que `Montrose Regional Airport` et `Valley International Airport`, affichant un cosinus carré vraiment élevé, sont bien projetés.  
+
+`Ted Stevens Anchorage International Airport` apparaît isolé dans le coin inférieur gauche sur le plan (1,2), suggérant qu'il pourrait être un outlier ou présenter des caractéristiques uniques par rapport aux autres aéroports. Cette observation mérite une analyse approfondie pour évaluer son impact sur les résultats globaux. Il est essentiel de déterminer si cette singularité est due à des erreurs de données, à une variabilité extrême, ou à des attributs spécifiques de l'aéroport. Des vérifications et analyses supplémentaires aideront à clarifier ces points et à décider comment intégrer cette donnée dans l'analyse globale.  
+
+Voyons maintenant le graphique `biplot` des individus projetés sur les axes 1 et 2 en ajoutant les variables :  
+
+```{r}
+fviz_pca_biplot(ACP, col.var = "cos2", gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"))
+```  
+
+
+
+
+#### **b) Classification**  
+
+#### *b.1) K-means*  
+
+- Corrélation entre les variables  
+
+```{r}
+m_cor3 = abs(cor(quan_airp))
+heatmaply(m_cor3, cellnote = NULL, dendrogram = "none")
+```
+
+- Réaliser K-means  
+
+
+
+
+
+
+On commence par réaliser une classification par la méthode des K-means, qui vise à partitionner l'ensemble de données en *k* groupes en minimisant la somme des carrés des distances entre les points de données et le centre de leur groupe respectif, afin de réduire la variance intra-groupe. Pour choisir le nombre idéal de groupes, on emploie la méthode du coude, consistant à observer le point où l'augmentation du nombre de groupes ne réduit plus significativement la somme des carrés intra-groupe.
+
+La présence de fortes corrélations entre les variables peut fausser les résultats de la classification par K-means, basée sur la distance euclidienne. Pour pallier cela, on peut utiliser l'Analyse en Composantes Principales afin de réduire la corrélation avant d'appliquer les K-means, ou adopter une mesure de distance prenant en compte la corrélation entre les variables, comme la distance de Mahalanobis. Dans ce contexte, nous privilégions la distance de Mahalanobis, définie par :
+
+$$ D(\mathbf{x}_i, \mathbf{c}_j) = \sqrt{(\mathbf{x}_i - \mathbf{c}_j)^T \Sigma_j^{-1} (\mathbf{x}_i - \mathbf{c}_j)} $$  
+
+- \( \mathbf{x}_i \) représente le vecteur du i-ème observation (ligne) de données.
+- \( \mathbf{c}_j \) est le vecteur représentant le centre du j-ème cluster.
+- \( \Sigma_j \) désigne la matrice de covariance des observations attribués au j-ème cluster.
+
+
+```{r}
+n = nrow(quan_airp)
+calculerCentres = function(data, groupes) {
+  centres = matrix(nrow = max(groupes), ncol = ncol(data))
+  for (i in 1:max(groupes)) {
+    membresDugroupe = data[groupes == i, , drop = FALSE]
+    centres[i,] = colMeans(membresDugroupe)
+  }
+  return(centres)
+}
+
+kmeansMahalanobis = function(data, centers, iter.max) {
+  n = nrow(data)
+  k = nrow(centers)
+  groupe = rep(0, n)
+  cov_inv = solve(cov(data)) 
+
+
+  for (iteration in 1:iter.max) {
+    for (i in 1:n) {
+      distances = apply(centers, 1, function(center) {
+        mahalanobis(data[i, , drop = FALSE], center = center, cov = cov_inv)
+      })
+      groupe[i] = which.min(distances)
+    }
+    new_centers = calculerCentres(data, groupe)
+    if (all(centers == new_centers)) {
+      break
+    }
+    centers = new_centers
+  }
+  
+  SC_intra_groupe = sum(sapply(1:n, function(i) {
+    mahalanobis(data[i, , drop = FALSE], center = centers[groupe[i], ], cov = cov_inv)
+  }))
+
+  return(list(centers = centers, groupe = groupe, SC_intra_groupe = SC_intra_groupe))
+}
+```  
+
+```{r}
+quan_airpcr = data.frame(scale(quan_airp))
+som_car_intra = numeric(10)
+for (i in 1:10) {
+  initialCenters = quan_airpcr[sample(1:nrow(quan_airp), i),]
+  kmeans_resultat = kmeansMahalanobis(quan_airpcr, initialCenters, 25)
+  som_car_intra[i] = kmeans_resultat$SC_intra_groupe
+}
+plot(1:10, som_car_intra, type = "b", xlab = "Nombre de groupe", ylab = "Somme des carrés intra-group",
+     main = "Méthode du coude pour le choix du nombre de groupes",pch =20, col= 'red', xaxt = "n")
+
+axis(1, at = 1:10, labels = 1:10)
+```
+
+D'après ce graphique, nous pouvons observer qu'il est possible de classer les aéroports en 3 ou 4 groupes, car au-delà de 4 groupes, la diminution de la somme des carrés intra-groupes devient moins marquée. Observons maintenant la répartition des aéroports en 3 groupes :  
+```{r}
+set.seed(9)
+initialCenters = quan_airp[sample(1:nrow(quan_airp), 3),]
+kmeans_resultat = kmeansMahalanobis(quan_airp, initialCenters, 20)
+table(kmeans_resultat$groupe)
+```  
+
+Donc, nous constatons que la majorité des aéroports sont classés dans le groupe 1, tandis que les autres se répartissent entre les groupes 2 et 3. Pour comprendre la classification des aéroports, nous pouvons visualiser les groupes sur le plan (1,2) de l'Analyse en Composantes Principales. À chaque groupe est attribuée une couleur spécifique. Observons donc les projections des individus sur ce plan de l'ACP, en utilisant une couleur différente pour chaque groupe : 
+
+```{r}
+col = rainbow(length(unique(kmeans_resultat$groupe)))
+
+p = ggplot(df_acp, aes(x = PC1, y = PC2, color = factor(kmeans_resultat$groupe), text = Tooltip_Info)) + 
+  geom_point() +
+  scale_color_manual(values = col, name = "Groupe") +
+  labs(x = "Nombre de vols arrivés", y = "Variation des incidents de sécurité", title = "Visualisation ACP sur 2 axes avec groupes") +
+  theme_minimal() +
+  guides(size = "none")
+
+ggplotly(p, tooltip = "text")
+```    
+
+D'après cette visualisation, il semble que les aéroports soient classés selon le nombre de vols arrivés. On peut également observer que le K-means classe les aéroports selon le nombre de vols retardés, car, comme mentionné dans les parties précédentes, le nombre de vols retardés est positivement corrélé au nombre de vols arrivés. Autrement dit, plus un aéroport enregistre de vols arrivés, plus il présente de vols retardés. Ainsi, plus le numéro du groupe est élevé, plus les aéroports de ce groupe affichent un grand nombre de vols arrivés et, par conséquent, un grand nombre de vols retardés. Par exemple, pour le groupe 3, d'après la partie [Analyser le nombre de vols retardés](#nb_vol_r), les aéroports de ce groupe sont ceux qui ont enregistré le plus grand nombre de vols retardés en 2022, en 2023, ou les deux années combinées.  
+
+On peut aussi visualiser les aéroports avec leur groupe à travers la carte des États-Unis :  
+
+```{r}
+col = rainbow(length(unique(kmeans_resultat$groupe)))
+g_airp_t$group = kmeans_resultat$groupe
+lon = mean(g_airp_t$Longitude)
+lat = mean(g_airp_t$Latitude)
+ma_carte = leaflet(width = 912, height = 600) %>%
+  addProviderTiles(providers$OpenStreetMap)
+ma_carte = addCircleMarkers(data = g_airp_t,lng = ~Longitude, lat = ~Latitude, map = ma_carte,color = ~col[group],
+                 stroke = FALSE, fillOpacity = 0.8,popup= ~ paste("<b>Aéroport :</b>",airport_name,"<br>",
+                                                                  "<b>Groupe :</b>",group) )
+ma_carte = setView(lng = lon, lat = lat, zoom = 4, map = ma_carte)
+
+onClickJS = sprintf(
+  "function(btn, map){ map.setView([%s, %s], 4); }", 
+  lat, lon
+)
+
+ma_carte = addEasyButton(
+  map = ma_carte,
+  button = easyButton(
+    icon = "fa-globe",
+    title = "Zoom initial",
+    onClick = JS(onClickJS)
+  )
+)
+ma_carte
+```  
+
+
+#### *b.2)  Classification Hiérarchique Ascendante (CAH)*   
+
+- Réaliser CAH  
+
+Nous allons maintenant classifier les aéroports en utilisant la méthode de Classification Ascendante Hiérarchique (CAH) avec le critère de regroupement de Ward. Nous comparerons ensuite ces résultats avec ceux obtenus via l'algorithme K-means pour voir s'ils sont similaires. Observons à présent le dendrogramme :  
+
+```{r}
+distMat = dist(quan_airp, method = "euclidean")
+cah = hclust(distMat, method ="ward.D")
+plot(cah, label = F, xlab = "Observation", ylab = "Distance", main = "Dendrogramme", sub = '', hang = -1)
+```  
+
+
+D'après l'analyse du dendrogramme, il semble pertinent de considérer un regroupement des données en 3 ou 4 groupes. Afin de déterminer le nombre optimal de groupes de manière plus précise, nous allons recourir à la méthode du coude. Cette approche implique de visualiser les changements d'inertie associés à différents nombres de groupes retenus dans le dendrogramme.  
+
+```{r}
+inertie = sort(cah$height, decreasing = TRUE)
+plot(inertie[1:20], type = "s", xlab = "Nombre de classes", ylab = "Inertie")
+points(c(2, 3, 4), inertie[c(2, 3, 4)], col = c("green3", "red3", "blue3"), cex = 2, lwd = 3)
+```  
+
+
+
+Donc, on observe trois variations significatives d'inertie correspondant à 2, 3 et 4 classes, marquées respectivement en vert, rouge et bleu. Ces points indiquent des moments où la formation de groupes supplémentaires n'apporte plus une réduction significative d'inertie, suggérant ainsi des regroupements potentiels pertinents pour nos données.  
+
+```{r}
+plot(cah, labels = FALSE, main = "Partition en 2, 3 ou 4 classes", ylab = "Distance", xlab = "Observation", sub = "", axes = FALSE, hang = -1)
+rect.hclust(cah, 2, border = "green3")
+rect.hclust(cah, 3, border = "red3")
+rect.hclust(cah, 4, border = "blue3")
+```  
+
+Nous choisissons, par exemple, 3 groupes. Voyons maintenant les aéroports et leur groupe respectif sur les plans 1 et 2 de l'ACP :  
+
+```{r}
+res.PCA=PCA(quan_airp,graph=FALSE)
+res.HCPC=HCPC(res.PCA,nb.clust=3,consol=FALSE,graph=FALSE)
+plot.HCPC(res.HCPC,choice='3D.map',ind.names=FALSE,centers.plot=FALSE,angle=100,title="Dendrogramme sur le plan (1,2) de l'ACP")
+```    
+
+#### *b.3) Interprétation de la qualité de classification*  
+
+Pour évaluer la finesse (qualité) de la répartition des éléments au sein de leurs groupes respectifs, ainsi que l'efficacité générale du processus de classification, le recours au score de silhouette est particulièrement judicieux. Oscillant entre -1 et 1, ce score permet d'évaluer la pertinence de l'assignation de chaque point à son groupe en comparaison avec les autres groupes. Un score proche de 1 indique une assignation très appropriée, où le point se distingue clairement des membres d'autres groupes, reflétant ainsi une classification de haute qualité. À l'opposé, un score proche de -1 suggère que le point serait mieux placé dans un autre groupe, indiquant une allocation inadéquate. Un score proche de 0 signifie que le point est positionné juste à la limite séparant deux groupes. La moyenne de ces scores à travers tous les points fournit un indicateur fiable de la qualité globale du regroupement, offrant une perspective complète sur l'efficacité de la classification.
+
+Examinons maintenant le graphique de silhouette qui présente le nombre d'observations de chaque groupe, le score moyen, ainsi que les scores spécifiques pour les trois groupes classifiés par K-means et par CAH :
+
+```{r}
+par(mfrow = c(1,2))
+par(mar = c(4, 1,3, 2))
+
+dist_matrix1 = dist(quan_airp)
+silhouette_scores1 = silhouette(kmeans_resultat$groupe, dist_matrix1)
+
+groupes = cutree(cah, k=3)
+dist_matrix = dist(quan_airp)
+silhouette_scores = silhouette(groupes, dist_matrix)
+
+plot(silhouette_scores1, col = c("red", "pink","darkblue"), border = NA, main = "K-Means",xlab = "")
+plot(silhouette_scores, col = c("red", "pink","darkblue"), border = NA, main = "CAH", xlab = "")
+``` 
+
+D'après le graphique précédent, on observe des niveaux de cohérence variés entre les groupes formés.  
+
+
+La méthode **K-Means** montre un score de silhouette moyen de **0.83**, indiquant une séparation et une attribution de points aux groupes très réussie. Plus précisément, le **Groupe 1** brille avec un score de silhouette de **0.89** pour **328 aéroports**, signalant une classification extrêmement cohérente au sein de ce groupe. Cependant, les **Groupes 2 et 3** sont caractérisés par des scores de silhouette plus bas, **0.37 pour 31 aéroports** et **0.46 pour 14 aéroports** respectivement, révélant ainsi une moindre distinction de ces aéroports par rapport aux autres groupes.  
+
+
+En parallèle, la méthode **CAH** propose une configuration en trois groupes, où le **Groupe 1** présente une forte cohérence interne avec un score de silhouette de **0.90** pour **272 aéroports**. Les **Groupes 2 et 3** expriment des degrés de classification inférieurs avec des scores de silhouette de **0.16** pour **73 aéroports** et **0.27** pour **28 aéroports**, ce qui suggère que ces aéroports sont regroupés avec moins de précision.  
+
+- Tableau Comparatif des Scores de Silhouette
+
+|   Groupe   |   K-Means   |   CAH   |
+|--------|--------|---|
+|   1   |   0.89   |   0.90   |
+|   2   |   0.37   |   0.16   |
+|   3   |   0.46   |   0.27   |
+|   **Moyenne**   |   **0.83**   |   **0.71**   |
+
+Cette comparaison indique que, bien que la méthode **K-Means** présente un score moyen de silhouette plus élevé, les deux méthodes sont compétentes pour identifier des groupes fortement cohérents, comme le montrent les scores pour le **groupe 1** dans chaque méthode. Toutefois, pour les groupes moins distincts, **K-Means** semble offrir une meilleure séparation des points.  
+
+
+
+
+
+### **3) Régression et modélisation**  
+
+
+#### **3.1) Régression linéaire simple**
+
+L'objectif de cette section est de développer un modèle de régression permettant de prédire le nombre de vols retardés d'un aéroport en fonction du nombre de vols arrivant à cet aéroport.   
+
+##### **a) Sélection des variables**
+
+Ainsi, pour estimer le nombre de vols retardés dans un aéroport en fonction du nombre de vols arrivant à cet aéroport, nous allons choisir deux variables :  
+
+|     Variable     |     Type     |     Rôle     |     Description     |
+|--------------|---------------|--------------------------|--------------------------------------------------------------------|
+|     arr_flights     |     Quantitative     |     Variable explicative     |     Le nombre de vols arrivés     |
+|     arr_del15     |     Quantitative     |     Variable expliquée     |     Le nombre de vols arrivés avec un retard de plus de 15 minutes     |
+
+```{r}
+df.reg = g_airp_t[,1:3]
+```
+
+
+
+##### **b) Tranformation les données**
+
+Selon les hypothèses de base de la régression linéaire simple, la variable cible devrait suivre une distribution normale, alors les données devraient être plus symétriques que possible. Cependant, comme nous l'avons observé dans la section [Détection des valeurs aberrantes](#sec-va), les données présentent une asymétrie vers la gauche. Examinons à nouveau la distribution de ces 2 variables à travers les diagrammes en boîte et les histogrammes :    
+
+
+```{r}
+
+par(mfrow = c(2, 2))
+
+par(mar = c(4, 4, 2, 1))
+
+
+hist(df.reg$arr_flights, main = "Nombre de vols arrivés", freq = FALSE, xlab = "", ylab = "", axes = FALSE, col = "skyblue") 
+axis(1); axis(2)
+lines(density(df.reg$arr_flights), col = "red")
+
+
+boxplot(df.reg$arr_flights, horizontal = TRUE, axes = FALSE, col = "lightgray")
+axis(1)
+
+hist(df.reg$arr_del15, main = "Nombre de vols retardés", freq = FALSE, xlab = "", ylab = "", axes = FALSE, col = "skyblue")
+axis(1); axis(2)
+lines(density(df.reg$arr_del15), col = "red")
+
+
+boxplot(df.reg$arr_del15, horizontal = TRUE, axes = FALSE, col = "lightgray")
+axis(1)
+```
+
+Nous constatons que les variables examinées affichent une asymétrie notable, et que `arr_flights` présente également certaines valeurs extrêmes. Ces caractéristiques peuvent compromettre la performance des modèles de régression. Afin d'adresser ces problèmes, nous envisageons d'appliquer une transformation logarithmique aux variables concernées. La transformation logarithmique est fréquemment recommandée pour réduire l'asymétrie des données, surtout lorsque celles-ci montrent une distribution asymétrique positive.  
+
+
+Il est important de souligner que quelques aéroports n'ont signalé aucun vol en retard, ce qui se traduit par des valeurs nulles pour le nombre de vols en retard. Afin de contourner les complications inhérentes à la prise de logarithme de zéro, nous optons pour l'ajout systématique d'une unité à toutes les valeurs avant de procéder à la transformation logarithmique. Cette méthode nous permet de traiter les données de manière efficace, tout en préservant l'intégrité des observations nulles pour les analyses subséquentes.
+
+```{r}
+df.reg$arr_flights = log(df.reg$arr_flights)
+df.reg$arr_del15 = log(df.reg$arr_del15 + 1)
+
+par(mfrow = c(2, 2))
+par(mar = c(4, 4, 2, 1))
+
+hist(df.reg$arr_flights , main = "Nombre de vols arrivés", freq = FALSE, xlab = "", ylab = "", axes = FALSE, col = "skyblue") 
+axis(1); axis(2)
+lines(density(df.reg$arr_flights ), col = "red")
+boxplot(df.reg$arr_flights , horizontal = TRUE, axes = FALSE, col = "lightgray")
+axis(1)
+
+hist(df.reg$arr_del15, main = "Nombre de vols retardés", freq = FALSE, xlab = "", ylab = "", axes = FALSE, col = "skyblue")
+axis(1); axis(2)
+lines(density(df.reg$arr_del15), col = "red")
+boxplot(df.reg$arr_del15, horizontal = TRUE, axes = FALSE, col = "lightgray")
+axis(1)
+```  
+
+Nous avons observé que l'application de transformations logarithmiques a réussi à réduire l'asymétrie des données, rendant les distributions des variables `arr_flights` et `arr_del15` plus symétriques (mais pas parfaitement symétrique). Cependant, il est évident que la variable `arr_flights` inclut trois observations aberrantes. Afin d'éliminer leur influence sur le modèle, ces observations seront retirées. Pour les retirer, nous allons utiliser la méthode des "percentiles", en supprimant les observations qui sont inférieures au premier décile. Ensuite, nous observerons à nouveau les boîtes à moustaches pour ces variables :
+
+```{r}
+filtrer_percentiles = function(data) {
+  p5 = quantile(data, 0.01)
+  return(data >= p5)
+}
+
+indices = sapply(df.reg[,2:3], filtrer_percentiles)
+indices_global = apply(indices, 1, all)
+
+df.reg = df.reg[indices_global,]
+par(mfrow = c(2, 2))
+par(mar = c(4, 4, 2, 1))
+
+hist(df.reg$arr_flights , main = "Nombre de vols arrivés", freq = FALSE, xlab = "", ylab = "", axes = FALSE, col = "skyblue") 
+axis(1); axis(2)
+lines(density(df.reg$arr_flights ), col = "red")
+boxplot(df.reg$arr_flights , horizontal = TRUE, axes = FALSE, col = "lightgray")
+axis(1)
+
+hist(df.reg$arr_del15, main = "Nombre de vols retardés", freq = FALSE, xlab = "", ylab = "", axes = FALSE, col = "skyblue")
+axis(1); axis(2)
+lines(density(df.reg$arr_del15), col = "red")
+boxplot(df.reg$arr_del15, horizontal = TRUE, axes = FALSE, col = "lightgray")
+axis(1)
+```  
+
+Nous observons désormais que les données sont plus symétriques, mais elles ne suivent pas encore parfaitement une distribution normale. Cela pourrait poser problème pour notre analyse de modèle de régression ultérieure.  
+
+##### **c) Création du modèle et vérifier les hypothèses a posteriori**  
+
+##### *c.1) Création du modèle*
+
+Notre modèle de régression linéaire simple est sous la forme :  
+$$
+\text{arr_del15} = a_0 + a_1 \times \text{arr_flights} + \epsilon
+$$  
+
+où :  
+-   $(a_0, a_1)$ est un vecteur de paramètres à estimer  
+-   $\epsilon$ est un vecteur des erreurs théoriques.
+```{r}
+model = lm(arr_del15~arr_flights, data = df.reg)
+``` 
+##### *c.2) Vérifier les hypothèses a posteriori* 
+Pour vérifier les hypothèses, nous procéderons de deux manières : d'abord par l'analyse graphique, puis par des tests statistiques. Et notre étude se concentre sur l'évaluation de cinq hypothèses clés concernant la relation entre `arr_del15` et`arr_flights` et le comportement des résidus. Posons :
+
+1. **Linéarité**
+   - *Hypothèse 1* : Le modèle est linéaire.
+   - *Test de vérification* : Le test de Rainbow :
+     - $H_0$ : Le modèle est linéaire.
+     - $H_1$ : Le modèle n'est pas linéaire.  
+     
+     
+
+Pour évaluer la relation entre la variable explicative et la variable cible, il est important de noter l'existence d'une forte corrélation entre ces deux variables. Cette forte corrélation est illustrée par le fait que `arr_del15` peut être dérivé de `arr_flights`, indiquant ainsi une corrélation proche de 1. Observons cette relation à travers le nuage de points de `arr_del15` en fonction de `arr_flights` :  
+
+
+```{r}
+plot(df.reg$arr_flights, df.reg$arr_del15, 
+     pch = 20, col = "darkred", cex = 0.5,
+     xlab = "Arrivées de vols", ylab = "Vols en retard", 
+     main = "Nuage de points des vols en retard par rapport aux arrivées de vols")
+```  
+
+Ainsi, nous constatons que le nuage de points s'aligne en formant une droite, ce qui suggère une forte relation linéaire entre les deux variables concernées. Cependant, afin de valider de manière plus rigoureuse cette observation visuelle et d'assurer que la relation est bien linéaire, nous allons procéder à la réalisation du test statistique de Rainbow.
+```{r}
+raintest(model)
+```  
+Et ici, nous avons une p-value de 0.2049, qui est supérieure au seuil de 5%. Par conséquent, nous n'avons pas suffisamment de preuves pour rejeter l'hypothèse nulle. Ainsi, la relation linéaire entre `arr_del15` et `arr_flights` est confirmée.  
+
+
+2. **Normalité des erreurs** $\epsilon_i$ :
+   - *Hypothèse 2* : Les erreurs $\epsilon_i$ suivent une distribution normale , pour tout $i \in \{1, \ldots, n\}$.
+   - *Test de vérification* : Le test de Shapiro-Wilk :
+     - $H_0$ : Les erreurs suivent une distribution normale.
+     - $H_1$ : Les erreurs ne suivent pas une distribution normale.  
+     
+Voyons le graphique Q-Q plot et la droite de Henry des résidus :  
+
+```{r}
+plot(model, which=2)
+```  
+
+Ici, les résidus aux deux extrémités ne semblent pas être alignés sur la droite de Henry. Cependant, les résidus au milieu se trouvent sur une droite. Par conséquent, l'ensemble des résidus ne semble pas suivre une loi normale. Pour être plus précis, vérifions cela avec un test de Shapiro-Wilk.
+```{r}
+shapiro.test(resid(model))
+```
+La p-value est extrêmement proche de 0 (3.214e-09), donc elle est inférieure à 5%. Cela signifie que nous n'avons pas suffisamment de preuves pour garder l'hypothèse nulle. Ainsi, selon le test de Shapiro-Wilk, les résidus ne suivent pas une distribution normale.  
+
+
+3. **Moyenne nulle**
+   - *Hypothèse 3* : $\text{E}(\epsilon_i) = 0$, pour tout $i \in \{1, \ldots, n\}$.
+   - *Test de vérification* : Le test de Student (si la taille de l'échantillon est grande plus grand que 30) ou le test de Wilcoxon (si la taille de l'échantillon est petite) :
+        -   $H_0$: $\text{E}(\epsilon_i) = 0$.
+        -   $H_1$: $\text{E}(\epsilon_i) \neq 0$.  
+        
+Examinons maintenant le graphique des résidus :
+```{r}
+plot(resid(model), pch = 20, cex = 0.5, col = 'darkred', xlab = "Index des résidus", ylab = "Résidus")
+abline(h=0, col = 'darkblue', lwd = 2, lty =2)
+```  
+
+Les résidus semblent être uniformément répartis autour de la ligne horizontale zéro, ce qui suggère que la moyenne des résidus pourrait être nulle. Pour confirmer cette hypothèse, nous réaliserons un test de Student. Étant donné que la taille de notre échantillon est de 373, largement supérieure au seuil recommandé de 30, nous pouvons appliquer le Théorème Central Limite. Ce théorème assure que la distribution des statistiques de test converge vers une distribution normale lorsque la taille de l'échantillon augmente, indépendamment de la distribution initiale de la population. Nous utiliserons la statistique de test suivante pour le t-test, qui vise à vérifier si la moyenne des résidus est effectivement nulle : 
+
+
+$$ t = \frac{\bar{e} - m}{s_e / \sqrt{n}} $$
+
+où  
+
+-   \(\bar{e}\) est la moyenne des résidus 
+-   \(m\) est la moyenne hypothétique des résidus 
+-   \(s_e\) est l'écart-type des résidus
+-   \(n\) est la taille de l'échantillon.
+
+```{r}
+t.test(resid(model))
+```  
+
+Nous obtenons une p-value de 1, qui est largement supérieure à 5%. Par conséquent, nous n'avons pas de preuve suffisante pour rejeter $H_0$, suggérant ainsi que la moyenne des résidus est bien nulle.
+
+4. **Indépendance des erreurs** :
+   - *Hypothèse 4* : $\text{Cov}(\epsilon_i, \epsilon_j) = 0$ pour tout $i \neq j$.
+   - *Test de vérification* : Test de Durbin-Watson :
+     - $H_0$ : Les résidus sont indépendants.
+     - $H_1$ : Les résidus ne sont pas indépendants.  
+
+Observons à nouveau le graphique des résidus :
+
+```{r}
+plot(resid(model), pch = 20, cex = 0.5, col = 'darkorange2', xlab = "Index des résidus", ylab = "Résidus")
+abline(h=0, col = 'darkblue', lwd = 2, lty =2)
+``` 
+
+D'après le graphique des résidus précédent, on observe que les résidus semblent être distribués aléatoirement autour de la ligne 0. Donc, il se pourrait que les résidus soient indépendants. Cependant, il est nécessaire de vérifier cette hypothèse à l'aide d'un test statistique pour être plus précis. Examinons maintenant le résultat du test de Breusch-Godfrey :
+```{r}
+dwtest(model)
+```  
+
+Le test de Durbin-Watson, avec une valeur de 1.9655 et une p-value de 0.2263, confirme l'absence d'autocorrélation significative dans les résidus de notre modèle de régression. Cette conclusion est également soutenue par la valeur du test, proche de 2, qui indique une bonne indépendance des résidus.  
+
+
+Cependant, il est important de noter que le test de Durbin-Watson peut être biaisé vers 2 lorsque les variables explicatives incluent des variables endogènes retardées. Cela signifie que la présence de ces variables comme prédicteurs peut influencer les résultats du test. Toutefois, ce biais ne concerne pas les modèles de régression simple. Dans le cas d'un modèle de régression multiple qui inclurait de telles spécificités, il serait approprié d'utiliser le test de Breusch-Godfrey, qui est mieux adapté pour gérer ces situations.
+
+
+5. **Homoscédasticité des erreurs** :
+   - *Hypothèse 5* : $\text{Var}(\epsilon_i) = \sigma^2$, pour tout $i \in \{1, \ldots, n\}$.
+   - *Test de vérification* : Le test de Breusch-Pagan :
+     - $H_0$ : Les résidus sont homoscédastiques.
+     - $H_1$ : Les résidus présentent de l'hétéroscédasticité.  
+     
+     
+Observons le graphique des résidus avec les valeurs prédites : 
+
+```{r}
+plot(model,which = 1, pch = 20, col = 'darkblue')
+```  
+
+Les résidus prennent la forme d'un entonnoir qui se resserre vers la gauche, indiquant que la variance des résidus n'est pas constante. Pour être plus précis, vérifions cela avec un test de Breusch-Pagan :
+```{r}
+bptest(model)
+```  
+
+Le test de Breusch-Pagan studentisé indique une hétéroscédasticité marquée dans notre modèle, comme le montrent une p-value très faible de 2.135e-07, signalant que la variance des résidus varie significativement. Cette hétéroscédasticité compromet l'homogénéité des variances des erreurs, essentielle à la validité des estimations de paramètres. Pour garantir des interprétations fiables des significativités des estimateurs de paramètres, une correction telle que la méthode de White pourrait être nécessaire, permettant de rectifier l'impact de l'hétéroscédasticité sur les estimations standard et d'assurer l'exactitude des tests statistiques dans le modèle.  
+
+
+Voici un tableau récapitulatif des hypothèses du modèle :  
+
+```{r}
+residus = resid(model)
+rain_p_value = raintest(model)$p.value
+t_p_value = t.test(residus)$p.value
+ks_p_value = shapiro.test(residus)$p.value
+dw_p_value = bgtest(model)$p.value
+bp_p_value = bptest(model)$p.value
+
+
+highlight_green_red = function(value, condition) {
+  ifelse(condition, cell_spec(value, "html", color = "white", background = "#2ecc71"), cell_spec(value, "html", color = "white", background = "#FF0000"))
+}
+
+
+h1_5_values = c(
+  highlight_green_red(sprintf("%.3f", rain_p_value), rain_p_value > 0.05),
+  highlight_green_red(sprintf("%.3f", t_p_value), t_p_value > 0.05),
+  highlight_green_red(sprintf("%.3f", ks_p_value), ks_p_value > 0.05),
+  highlight_green_red(sprintf("%.3f", dw_p_value), dw_p_value > 0.05),
+  highlight_green_red(sprintf("%.3f", bp_p_value), bp_p_value > 0.05)
+)
+
+h1_5_df = data.frame(
+  Hypothèse = c( "Linéarité (P-Value)", "Moyenne null (P-Value)", "Normalité (P-Value)", "Indépendance des Erreurs (P-Value)", "Homoscédasticité (P-Value)"),
+  Résultat = h1_5_values,
+  stringsAsFactors = FALSE
+)
+
+kable(h1_5_df, "html", escape = F) %>%
+  kable_styling(full_width = F, font_size = 16) %>%
+  row_spec(0, bold = TRUE, color = "white", background = "#666666") %>%
+  column_spec(2) 
+```  
+
+##### **d) Significativité des coefficients, du modèle et qualité de l'ajustement du modèle**  
+
+**Significative des coefficients** 
+
+D'après la partie précédente, nous avons constaté que notre modèle ne respecte pas l'hypothèse d'homoscédasticité, nécessitant donc l'application d'une méthode alternative pour y remédier. En présence d'hétéroscédasticité, on ne peut pas faire d'inférence fiable sur les paramètres du modèle car la statistique de test t de Student n'est pas valide. Ceci est dû aux variances des estimateurs qui ne sont plus homogènes à travers les observations :
+
+| Estimateur | Formule | Variance |
+|------------|---------|----------|
+| $\hat{a}$  | $$ \hat{a} = \frac{\sum_{i=1}^{n} (x_i - \bar{x}) (y_i - \bar{y})}{\sum_{i=1}^{n} (x_i - \bar{x})^2} $$ | $$ \text{Var}(\hat{a}) = \frac{\hat{\sigma}^2}{\sum_{i=1}^{n} (x_i - \bar{x})^2} $$ |
+| $\hat{b}$  | $$ \hat{b} = \bar{y} - \hat{a} \bar{x} $$ | $$ \text{Var}(\hat{b}) = \hat{\sigma}^2 \left( \frac{1}{n} + \frac{\bar{x}^2}{\sum_{i=1}^{n} (x_i - \bar{x})^2} \right) $$ |
+| $\hat{\sigma}^2$ |$$ \hat{\sigma}^2 = \frac{1}{n-2} \sum_{i=1}^{n} (y_i - \hat{y}_i)^2 $$ |  |
+
+On remarque que la variance des estimateurs dépend de \(\hat{\sigma}^2\). Ainsi, si \(\hat{\sigma}^2\) n'est pas constant, les statistiques de test t pour évaluer la significativité des coefficients ne sont plus appropriées. Dans ce cas, il est recommandé d'utiliser des erreurs types robustes, comme l'estimateur sandwich de Huber-White, qui fournit une estimation robuste de $\sigma^2$ tout en corrigeant l'hétéroscédasticité.
+
+Voyons maintenant les résultats de l'inférence sur les coefficients de régression avec des erreurs standard robustes à l'hétéroscédasticité :  
+
+```{r}
+
+robust_se = sqrt(diag(vcovHC(model, type = "HC1")))
+
+
+coefs_robust = cbind(Estimate = coef(model), RobustSE = robust_se)
+#print(coefs_robust)
+coeftest_robust = coeftest(model, vcov. = vcovHC(model, type = "HC1"))
+print(coeftest_robust)
+```  
+Le résultat du test t de Student nous indique que les coefficients du modèle sont significativement différents de zéro, avec des valeurs p très faibles. De plus, la pente positive pour la variable 'arr_flights' (nombre de vols arrivés) suggère qu'il y a une corrélation positive entre le nombre de vols arrivés et le nombre de vols retardés. Plus précisément, pour chaque augmentation d'une unité dans le nombre de vols arrivés, le nombre de vols retardés augmente en moyenne de 1.052 unité, selon les résultats du modèle de régression.
+
+Cependant, il est important de noter que l'intercept négatif peut sembler inhabituel dans ce contexte. Cela signifie que lorsque le nombre de vols arrivés est nul, le nombre de vols retardés est attendu d'être inférieur à zéro. Une telle extrapolation en dehors de la gamme des données observées peut être considérée comme non plausible dans certains cas. Il est donc recommandé de procéder à une analyse plus approfondie des données et du modèle pour déterminer la pertinence de cette observation et envisager des ajustements appropriés si nécessaire.  
+
+
+- Intervalle de confiance des coefficients :  
+```{r}
+confint(coeftest_robust)
+```  
+
+On voit que pour un niveau de confiance de 95 %, les estimations des coefficients se trouvent dans les intervalles de confiance correspondants.  
+
+
+**Significative du modèle** 
+
+Contrairement à la significativité de chaque coefficient, la significativité globale du modèle n'est pas directement affectée par l'hétéroscédasticité des erreurs. Par conséquent, on peut utiliser la fonction `summary()` pour évaluer la significativité du modèle. De plus, on peut également examiner si l'hétéroscédasticité du modèle influence sur la significativité des coefficients. Voyons maintenant cette résultat : 
+
+```{r}
+summary(model)
+```  
+Il est évident que, bien que la valeur de la statistique du test t de Student varie, la significativité de chacun des coefficients demeure inchangée. Cela suggère que l'hétéroscédasticité des résidus n'affecte pas significativement l'inférence du modèle. De plus, la valeur p de la statistique de Fisher est nettement inférieure à 0, ce qui confirme la significativité statistique globale du modèle.
+
+**Qualité d'ajustement**
+
+La qualité d'ajustement du modèle est évaluée par le coefficient de détermination $R^2$ et le coefficient de détermination ajusté $\bar{R}^2$. Ces mesures évaluent la proportion de la variance de la variable dépendante qui est expliquée par les variables explicatives. Le coefficient de détermination $R^2$ est défini comme suit : 
+$$
+R^2 = 1 - \frac{\text{SCres}}{\text{SCT}} = \frac{\text{SCreg}}{\text{SCT}} = \rho(\text{arrflights}, \text{arrdel15})^2
+$$
+
+Ici, avec un coefficient de détermination multiple ($R^2$) de 0.9866, le modèle parvient à expliquer environ 98.66% de la variabilité observée dans le nombre de vols retardés. Cette valeur représente un niveau d'explication exceptionnellement élevé, suggérant que le modèle est très efficace pour capturer les relations entre les variables et prédire le nombre de vols retardés. 
+
+##### **e) Étudier les influences**
+
+```{r}
+influence = influence.measures(model)
+inf = as.data.frame(influence[[1]])
+```
+
+##### *e.1) Influence par les points leviers*
+
+Une observation est dite *levier* si elle a une influence importante sur l'estimation des paramètres du modèle, ce qui est souvent dû à des valeurs extrêmes des variables explicatives $x$. Pour détecter ces points, on calcule la *hat-value* pour chaque observation.
+
+Soit une observation $i$, la *hat-value* $H_{ii}$ est calculée à partir de l'élément diagonal de la matrice de projection $H$, qui est la projection orthogonale de $Y$ sur l'espace des variables explicatives $X$. Cette valeur est donnée par $H_{ii} = (X(X'X)^{-1}X')_{ii}$. Alternativement, elle peut être estimée en utilisant la distance de Mahalanobis : $H_i = \frac{1}{n} + \frac{(x_i - \bar{x})^2}{\sum_{i=1}^{n}(x_i-\bar{x})^2}$. Une observation est considérée comme levier si sa *hat-value* dépasse le seuil $\frac{2(p+1)}{n}$, où $p$ représente le nombre de variables explicatives et $n$ est le nombre total d'observations.
+
+```{r}
+p = 1
+n = dim(df.reg)[1]
+seui.hat = 2*(p+1)/n 
+hat.df = data.frame(obs = 1:nrow(inf),hat = inf$hat,inf = ifelse(inf$hat > seui.hat, "Levier", "Normal"))
+ggplot(hat.df, aes(x = obs, y = hat)) +
+  geom_point(aes(color = inf), pch = 20, size = 1) +  
+  scale_color_manual(
+    values = c("Normal" = "blue", "Levier" = "darkred"),
+    name = "",  
+    labels = c("Levier", "Normal")
+  ) +
+  geom_line(aes(y = seui.hat, linetype = "Seuil de Levier"), color = "red") + 
+  scale_linetype_manual(
+    name = "", 
+    values = "dashed",
+    labels = "Seuil de Levier"
+  ) +
+  labs(
+    title = "",
+    x = "Observation",
+    y = "Hat Values"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+```
+
+##### *e.2) Influence par les résidus*
+
+Soit $e_i$ le résidu de l'observation $i$, donc on a :
+
+$$ e_i = y_i - \hat{y}_i = Y - HY = (I - H)Y $$
+
+où $H$ est la matrice de projection orthogonale de $Y$ sur l'espace des variables explicatives $X$.
+
+Même si $\text{Var}(\epsilon_i) = \sigma^2$ (constante pour toutes les observations), on a $\text{Var}(e_i) = \sigma^2(1 - H_{i,i})$. Donc, si $H_{i,i}$ est proche de 1, cela indique que les points sont "collés" sur la droite de régression.
+
+Un point est dit influencé par les résidus si les points sont les valeurs extrêmes en $y$, ce qui donne une grande différence entre les valeurs réelles et les valeurs prédites. Observons le graphique des observations considérées comme influentes selon le test des résidus standardisés :   
+
+```{r}
+seuil_resi = qt(0.95,n-p-2)
+res.df = data.frame(obs = 1:nrow(inf),resid_stand = rstudent(model),inf = ifelse(rstudent(model) > seuil_resi |rstudent(model) < -seuil_resi , "Influence par les résidus", "Normal"))
+
+ggplot(res.df, aes(x = obs, y = resid_stand)) +
+  geom_point(aes(color = inf), pch = 20, size = 1) +  
+  scale_color_manual(
+    values = c("Normal" = "blue", "Influence par les résidus" = "darkred"),
+    name = "",  
+    labels = c("Influence par les résidus", "Normal")
+  ) +
+  geom_line(aes(y = seuil_resi, linetype = "Seuil"), color = "red") +
+  geom_line(aes(y = -seuil_resi, linetype = "Seuil"), color = "red") +
+  scale_linetype_manual(
+    name = "", 
+    values = "dashed",
+    labels = "Seuil de Student"
+  ) +
+   
+  labs(
+    title = "",
+    x = "Observation",
+    y = "Résidus Standardisés"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+```  
+
+On peut aussi effectuer uen test multiple pour tester les residus standarlise :
+
+```{r}
+outlierTest(model)
+```
+
+##### *e.3) Distance de Cook*
+
+La Distance de Cook est une mesure qui combine les valeurs de levier (hat values) et les résidus standardisés. Elle évalue l'influence de l'omission d'une observation sur la qualité des estimations des coefficients du modèle de régression. Une observation est considérée comme influente si sa distance de Cook est supérieure à $\frac{4}{n - p - 1}$, où $n$ est le nombre total d'observations et $p$ le nombre de paramètres dans le modèle.
+
+```{r}
+ols_plot_cooksd_bar2 = function(model) {
+  k = ols_prep_cdplot_data(model)
+  d = ols_prep_outlier_obs(k)
+  f = ols_prep_cdplot_outliers(k)
+  
+  threshold =  4 / (n-p-1)
+
+  y_max = max(k$maxx, threshold)
+  y_lim = y_max + (y_max * 0.1)
+
+  # geoms
+  p =
+    ggplot(d, aes(x = obs, y = cd, label = txt)) +
+    geom_bar(width = 0.5, stat = "identity", aes(fill = fct_color)) +
+    geom_hline(yintercept = 0) +
+    geom_hline(yintercept = threshold, colour = "red")
+
+  # annotations
+  p = p +
+    annotate("text", x = Inf, y = Inf, hjust = 1.2, vjust = 2,
+      family = "serif", fontface = "italic", colour = "darkred",
+      label = paste("Threshold:", round(threshold, 5)))
+
+  # scales
+  p = p + scale_fill_manual(values = c("blue", "red"))
+
+  # guides
+  p = p +
+    labs(fill = "Observation") +
+    xlab("Observation") +
+    ylab("Cook's D") +
+    ylim(0, y_lim)
+
+    suppressWarnings(print(p))
+}
+ols_plot_cooksd_bar2(model)
+```
+
+##### *e.4) DFFITS*
+
+Les DFFITS sont une mesure d'influence en régression statistique qui quantifie l'effet de l'omission d'une observation sur les valeurs prédites par le modèle. Une règle empirique courante est que des valeurs de DFFITS plus grandes que $2\sqrt{\frac{p+1}{n}}$ (où $p$ est le nombre de paramètres et $n$ le nombre total d'observations) sont considérées comme indiquant une influence exagéré.
+
+```{r}
+seuil_dffits = sqrt(2*(p+1)/n)
+dffit.df = data.frame(obs = 1:nrow(inf),dffits = inf$dffit,inf = ifelse(inf$dffit > seuil_dffits |inf$dffit < -seuil_dffits , "Influence par dffits", "Normal"))
+
+ggplot(dffit.df, aes(x = obs, y = dffits)) +
+  geom_point(aes(color = inf), pch = 20, size = 1) +  
+  scale_color_manual(
+    values = c("Normal" = "blue", "Influence par dffits" = "darkred"),
+    name = "",  
+    labels = c("Influence par dffits", "Normal")
+  ) +
+  geom_line(aes(y = seuil_dffits, linetype = "Seuil"), color = "red") +
+  geom_line(aes(y = -seuil_dffits, linetype = "Seuil"), color = "red") +
+  scale_linetype_manual(
+    name = "", 
+    values = "dashed",
+    labels = "Seuil de DFFITS"
+  ) +
+   
+  labs(
+    title = "",
+    x = "Observation",
+    y = "DFFITS"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+
+##### *e.5) DFBETAS*
+
+Les **DFBETAS** sont des mesures d'influence en régression qui évaluent l'impact de l'omission d'une observation sur chaque coefficient estimé du modèle. Une règle d'interprétation empirique est que des valeurs de DFBETAS plus grandes que $\frac{2}{\sqrt{n}}$ (où $n$ est le nombre total d'observations) sont considérées comme indiquant une influence exagéré.
+
+```{r}
+seuil.dfbe = 2/sqrt(n)
+dfb1.df = data.frame(obs = 1:nrow(inf), dfb = inf$dfb.1_, inf = ifelse(inf$dfb.1_ > seuil.dfbe | inf$dfb.1_ < -seuil.dfbe, "Influence par dfbetas", "Normal"))
+dfb2.df = data.frame(obs = 1:nrow(inf), dfb = inf$dfb.arr_, inf = ifelse(inf$dfb.arr_ > seuil.dfbe | inf$dfb.arr_ < -seuil.dfbe, "Influence par dfbetas", "Normal"))
+
+p1 = ggplot(dfb1.df, aes(x = obs, y = dfb)) +
+  geom_point(aes(color = inf), pch = 20, size = 1) +
+  geom_hline(yintercept = c(seuil.dfbe, -seuil.dfbe), linetype = "dashed", color = "red") +
+  scale_color_manual(
+    values = c("Normal" = "blue", "Influence par dfbetas" = "darkred"),
+    name = "",  
+    labels = c("Influence par dfbetas", "Normal")
+  ) +
+  labs(title = "Constance", x = "Observation", y = "DFBETAS") +
+  theme_minimal()
+
+p2 = ggplot(dfb2.df, aes(x = obs, y = dfb)) +
+  geom_point(aes(color = inf), pch = 20, size = 1) +
+  geom_hline(yintercept = c(seuil.dfbe, -seuil.dfbe), linetype = "dashed", color = "red") +
+  scale_color_manual(
+    values = c("Normal" = "blue", "Influence par dfbetas" = "darkred"),
+    name = "",  
+    labels = c("Influence par dfbetas", "Normal")
+  ) +
+  labs(title = "arr_flights", x = "Observation", y = "DFBETAS") +
+  theme_minimal()
+
+
+p5 = (p1 + p2) + plot_layout(guides = 'collect') & theme(legend.position = "bottom")
+print(p5)
+```
+
+##### *e.6) Ratio de covariation*
+
+Le ratio de covariation est une mesure d'influence qui évalue l'effet de l'omission d'une observation sur la matrice de covariance des coefficients estimés du modèle. Une règle d'interprétation est que des valeurs de ratio de covariation en dehors de l'intervalle $[ 1 - \frac{3(p+1)}{n} ; 1 + \frac{3(p+1)}{n} ]$ (où $p$ est le nombre de paramètres et $n$ le nombre total d'observations) sont considérées comme indiquant une influence exagérée.
+
+```{r}
+seuil_co_sup = 1 + 3*(p+1)/n
+seuil_co_inf = 1 - 3*(p+1)/n
+co.df = data.frame(obs = 1:nrow(inf),co = inf$cov.r,inf = ifelse(inf$cov.r > seuil_co_sup|inf$cov.r < seuil_co_inf, "Influence sur la variance généralise", "Normal"))
+
+ggplot(co.df, aes(x = obs, y = co)) +
+  geom_point(aes(color = inf), pch = 20, size = 1) +  
+  scale_color_manual(
+    values = c("Normal" = "blue", "Influence sur la variance généralise" = "darkred"),
+    name = "",  
+    labels = c("Influence sur la variance généralise", "Normal")
+  ) +
+  geom_line(aes(y = seuil_co_sup, linetype = "Seuil"), color = "red") +
+  geom_line(aes(y = seuil_co_inf, linetype = "Seuil"), color = "red") +
+  scale_linetype_manual(
+    name = "", 
+    values = "dashed",
+    labels = "Seuil du ratio de covariation"
+  ) +
+   
+  labs(
+    title = "",
+    x = "Observation",
+    y = "CovRatio"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+
+##### **f) Étudier le nouveau modèle sans les influences**
+
+Nous explorons un nouveau modèle après avoir éliminé tous les points considérés comme influents selon l'un des critères énoncés précédemment. Nous comparerons ensuite ce modèle avec le modèle initial en utilisant les critères de sélection du modèle pour trouver le meilleur.
+
+```{r}
+PRESS = function(model) {
+  hat_values = lm.influence(model)$hat
+  residuals = residuals(model)
+  press = sum((residuals / (1 - hat_values))^2)
+  return(press)
+}
+
+inf = c()
+for (i in 1:nrow(df.reg)){
+  for (j in 1:6){
+    if (influence$is.inf [i,j] == T){
+      inf = c(inf,i)
+      break
+    }
+  }
+}
+df_sans_outlier = df.reg[-inf,]
+m_sans_outlier = lm(arr_del15 ~ arr_flights, data = df_sans_outlier)
+
+list1_m = list(model,m_sans_outlier)
+
+l1_r2 = c()
+l1_mae = c()
+l1_rmse = c()
+l1_aic = c()
+l1_bic = c()
+l1_press = c()
+
+
+for (i in 1:length(list1_m)){
+  mo = list1_m[[i]]
+  su = summary(mo)
+  l1_r2 = c(l1_r2, round(su$r.squared,4))
+  l1_aic = c(l1_aic, round(AIC(mo),4))
+  l1_bic = c(l1_bic, round(BIC(mo),4))
+  l1_mae = c(l1_mae, round(mean(abs(su$residuals)),4))
+  l1_rmse = c(l1_rmse, round(sqrt(mean(su$residuals^2)),4))
+  l1_press = c(l1_press,round(PRESS(mo),4)) 
+}
+
+res = as.data.frame (cbind(l1_r2,l1_mae,l1_rmse,l1_aic,l1_bic,l1_press))
+
+colnames(res) = c("R^2", "MAE", "RMSE", "AIC", "BIC", "MSE prédict")
+rownames(res) = c("Modèle initial", "Modèle sans les outliers")
+highlight_green  = function(x, best_value) {
+  ifelse(x == best_value, cell_spec(x, "html", background = "#2ecc71", color = "white"), x)
+}
+res$`R^2`  = highlight_green(res$`R^2`, max(res$`R^2`))
+res$RMSE  = highlight_green(res$RMSE, min(res$RMSE))
+res$MAE  = highlight_green(res$MAE, min(res$MAE))
+res$AIC  = highlight_green(res$AIC, min(res$AIC))
+res$BIC  = highlight_green(res$BIC, min(res$BIC))
+res$`MSE prédict`  = highlight_green(res$`MSE prédict`, min(res$`MSE prédict`))
+ kable(res, "html", escape = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F) %>%
+  column_spec(1, bold = T) %>%
+  row_spec(0, bold = T)
+```  
+
+En général, on remarque que le modèle sans les influences est nettement meilleur que le modèle initial. Lorsque des critères tels que $R^2$, $\text{MAE}$ et $\text{RMSE}$ ne diffèrent pas beaucoup entre les deux modèles, on observe clairement que pour les critères AIC, BIC et MSE prédit, le modèle sans influence a amélioré ces critères au moins deux fois moins. De là, nous pouvons conclure que les influences ont eu un impact considérable sur la précision du modèle de prédiction.
+
+On fait une analyse a posteriori sur le modèle sans influence pour voir si les hypothèses sont valides :
+
+```{r, warning=FALSE}
+rain_p_value = raintest(m_sans_outlier)$p.value
+t_p_value = t.test(resid(m_sans_outlier))$p.value
+ks_p_value = ks.test(residus, "pnorm", mean(residus), sd(residus))$p.value
+dw_p_value = dwtest(m_sans_outlier)$p.value
+bp_p_value = bptest(m_sans_outlier)$p.value
+
+h1_5_values = c(
+  highlight_green_red(sprintf("%.3f", rain_p_value), rain_p_value > 0.05),
+  highlight_green_red(sprintf("%.3f", t_p_value), t_p_value > 0.05),
+  highlight_green_red(sprintf("%.3f", ks_p_value), ks_p_value > 0.05),
+  highlight_green_red(sprintf("%.3f", dw_p_value), dw_p_value > 0.05),
+  highlight_green_red(sprintf("%.3f", bp_p_value), bp_p_value > 0.05)
+)
+
+h1_5_df = data.frame(
+  Hypothèse = c("Linéarité (P-Value)","Moyenne null (P-Value)", "Normalité (P-Value)", "Indépendance des Erreurs (P-Value)", "Homoscédasticité (P-Value)"),
+  Résultat = h1_5_values,
+  stringsAsFactors = FALSE
+)
+
+kable(h1_5_df, "html", escape = F) %>%
+  kable_styling(full_width = F, font_size = 16) %>%
+  row_spec(0, bold = TRUE, color = "white", background = "#666666") %>%
+  column_spec(2) 
+```  
+
+Donc, nous observons que, même si les critères de choix du modèle s'améliorent, le modèle sans outlier ne respecte toujours pas les hypothèses de normalité et d'homoscédasticité. Il faut donc envisager de choisir un autre type de modèle pour la régression. En effet, si les cinq hypothèses ne sont pas vérifiées, nous ne pouvons pas appliquer ce modèle pour prédire les données.  
+
+
+
+#### **3.2) GLM Poisson**  
+
+Comme dans la partie précédente, nous observons que notre modèle de régression simple ne valide pas certaines hypothèses. Nous pouvons donc essayer un autre modèle de régression, celui de Poisson. Ce modèle est fréquemment utilisé pour les données de comptage et repose sur la distribution de Poisson. Ici, la variable explicative correspond aux données de comptage qui enregistrent le nombre de vols retardés dans un aéroport. L'objectif reste le même : modéliser le nombre de vols retardés en fonction du nombre de vols arrivés, en supposant que le nombre de vols arrivés suit une loi de Poisson. Alors, tentons ce modèle.
+
+##### **a) Le modèle**
+
+- Introduction  
+
+
+
+
+Considérons maintenant \(n\) observations indépendantes \(y_1,...,y_n\) pour lesquelles nous supposons une distribution de Poisson conditionnellement à un ensemble de \(p\) covariables catégorielles ou numériques \(x_i\), pour \(i=1,...,p\). Le modèle est donné par l'équation suivante :
+
+\[
+\ln(E[y_i | x_i]) = \ln(\lambda_i) = \beta_0 + \beta_1x_{i1} + ... + \beta_px_{ip} = x_i^T\beta
+\]
+
+avec \(i=1,...,n\), où \(x_i^T = (1, x_{i1},...,x_{ip})^T\) et \(\beta = (\beta_0,...,\beta_p)\). Et La fonction de lien naturel est le logarithme.  
+
+Il s'ensuit que :
+\[
+E[y_i | x_i] = \lambda_i = e^{\beta_0 + \beta_1x_{i1} + ... + \beta_px_{ip}} = e^{x_i^T\beta}
+\]
+
+- Application 
+
+Dans notre case, on a Y est `arr_del15` et X est `arr_flights`. On peut donc écrire le modèle de régression de Poisson comme suit :
+
+$$\ln(E[\text{arr_del15} | \text{arr_flights}_{i}]) = \ln(\lambda_i) = a_0 + a_1\text{arr_flights}_i$$
+
+
+
+où $A = (a_0, a_1)$ est un vecteur de paramètres à estimer 
+
+```{r}
+model_poisson = glm(arr_del15 ~ arr_flights, data = g_airp_t, family = poisson(link = "log"))
+```
+##### **b) Vérifier les hypothèses a posteriori**
+
+Pour un modèle de régression de Poisson, certaines hypothèses doivent être vérifiées :  
+
+
+**1. Indépendance des résidus**  
+
+
+   - *Hypothèse* : Les résidus du modèle $e_1, \dots, e_n$ sont indépendants les uns des autres.  
+   
+   - *Test employé* : Test de Ljung-Box  
+   
+        - \(H_0\): $e_1, \dots, e_n$ sont indépendants.  
+        
+        - \(H_1\): $e_1, \dots, e_n$ ne sont pas indépendants.
+```{r}
+Box.test(g_airp_t$arr_del15)
+```  
+
+Alors que nous observons une valeur de p (0.502) supérieure à 0.05, cela signifie que nous n'avons pas suffisamment de preuves pour rejeter H0. Par conséquent, nous pouvons affirmer que les résidus $e_1, \dots, e_n$ sont indépendants.
+
+**2. Distribution `arr_del15` selon une loi de Poisson**
+
+```{r}
+y = g_airp_t$arr_del15
+lambda_estime = mean(y)
+df_empirique = data.frame(counts = y)
+df_theorique = data.frame(counts = rpois(10000, lambda = lambda_estime))
+ggplot() +
+  geom_histogram(data = df_empirique, aes(x = counts, y = ..density.., fill = "Distribution observés"), alpha = 0.5, bins = 30) +
+  geom_histogram(data = df_theorique, aes(x = counts, y = ..density.., fill = "Distribution théorique"), alpha = 0.5, bins = 30) +
+  scale_fill_manual(values = c("Distribution observés" = "blue", "Distribution théorique" = "red")) +
+  labs(title = "Histogramme de la variable de réponse et distribution de Poisson théorique",
+       x = "arr_del15",
+       y = "Fréquence",
+       fill = "") +
+  theme_minimal() +
+  theme(legend.position = "right")
+```  
+
+D'après l'analyse visuelle de l'histogramme, il est évident que la distribution des données de la variable réponse `arr_del15` diffère substantiellement d'une distribution de Poisson typique avec un paramètre de taux \( \lambda \) estimé à 7468.611.  
+
+**3. Surdispersion**
+
+La surdispersion se produit lorsque les données montrent plus de variabilité que ce que le modèle statistique utilisé prévoit. En analysant l'histogramme précédent, il est clair qu'il y a une différence marquée entre les distributions observées et théoriques, indiquant une surdispersion. Cette situation est particulièrement notable dans les faibles valeurs de comptage (`arr_del15`), où les barres bleues représentant les données observées surpassent les barres rouges de la distribution de Poisson théorique. Cela suggère que les données réelles varient davantage que ce qui est prévu par le modèle de Poisson, qui suppose normalement que la moyenne et la variance des données sont équivalentes.
+
+Pour une évaluation plus précise, on peut calculer le paramètre de surdispersion \( \phi \) :
+
+\[
+\phi = \frac{\text{déviance résiduelle}}{\text{dégrés de liberté résiduels}}
+\]
+
+La déviance résiduelle (\( D \)) correspond à deux fois la différence entre la log-vraisemblance de deux modèles : un modèle qui s’ajuste parfaitement aux données et le modèle que nous voulons tester. Plus \( D \) est petit, mieux le modèle s'adapte aux données.
+
+```{r}
+summary(model_poisson)
+```  
+
+D'après la résumé du `model_poisson` ici, on a le paramètre de surdispersion \( \phi = \frac{2615999}{368} = 7108.69 \). La déviance est donc 7108.69 fois supérieure au nombre de dégrés de liberté. Le modèle peut alors être qualifié de surdispersé.
+
+Dans le cas où il y a surdispersion, on peut :
+
+- Corriger la surdispersion en utilisant un GLM quasi-Poisson.
+- Choisir une nouvelle distribution comme la binomiale négative.
+
+Le choix peut être illustré par le graphique suivant :
+
+ <center>
+![Source : https://r.qcbs.ca/workshop06/book-fr/que-faire-avec-des-donn%C3%A9es-dabondance.html#glm-avec-une-distribution-de-poisson](https://r.qcbs.ca/workshop06/book-fr/images/dispParam.png)
+</center>
+
+Ici, nous observons que \( \phi = 7100.941 \) est largement supérieur à 20, donc nous devrions choisir une nouvelle distribution comme la binomiale négative.  
+
+La distribution binomiale négative inclut un paramètre de dispersion, \(\theta\), essentiel pour aborder les problèmes de surdispersion. Elle résulte de la fusion entre une distribution de Poisson et une distribution Gamma, permettant de modéliser une variable aléatoire discrète de manière analogue à Poisson mais avec une variance qui peut différer de la moyenne.
+
+La fusion des distributions de Poisson et Gamma se caractérise par deux paramètres, \(\mu\) et \(\theta\), définissant la distribution binomiale négative comme suit:
+
+\[Y_i \sim NB(\mu, \theta)\]
+
+avec:
+
+- \(E(Y_i) = \mu\)
+- \(Var(Y_i) = \mu + \frac{\mu^2}{\theta}\).
+
+Cette formule révèle comment la distribution binomiale négative gère la surdispersion dans les modèles linéaires généralisés. Le paramètre \(\theta\) indique le degré de surdispersion : un \(\theta\) élevé minimise la contribution du terme de surdispersion \(\mu^2 / \theta\), rendant la variance proche de \(\mu\) et alignant ainsi la distribution sur celle de Poisson pour des valeurs de \(\theta\) suffisamment grandes. À l'inverse, un \(\theta\) faible signale une forte surdispersion.
+
+La spécification d'un GLM avec distribution binomiale négative se fait en trois étapes. La première suppose que chaque \(Y_i\) suit une distribution binomiale négative avec une moyenne \(\mu_i\) et un paramètre de dispersion \(\theta\):
+
+\[Y_i \sim NB(\mu_i, \theta)\]
+
+où:
+
+- \(E(Y_i) = \mu_i\),
+- \(Var(Y_i) = \mu_i + \mu_i^2 / \theta\).
+
+Les étapes suivantes déterminent le prédicteur linéaire et la fonction de lien (g) reliant la moyenne des \(Y_i\) au prédicteur. La fonction de lien typiquement employée dans les GLM avec distribution binomiale négative est le logarithme, assurant des valeurs prédites strictement positives:
+
+\[log(\mu_i) = a_0 + a_i X_i\]
+
+ou, de façon équivalente:
+
+\[\mu_i = exp(a_0 + a_i X_i)\].
+
+```{r}
+model_bn = MASS::glm.nb(arr_del15 ~ arr_flights, data = g_airp_t)
+summary(model_bn)
+```  
+
+Ici, on constate que le modèle GLM `Binomiale négative` nous indique un paramètre de surdispersion \( \phi = \frac{445.09}{368} = 1.2 \), qui est vraiment proche de 1. Cela indique que ce modèle est apte à gérer la surdispersion par rapport au modèle `Poisson`. De plus, le critère AIC de ce modèle est largement meilleur que celui du modèle `Poisson` (6487.1 comparé à 2619258).
+
+D'après les résultats de la fonction `summary()`, tous les coefficients sont significativement différents de 0, car selon le test de Wald, nous obtenons des p-values inférieures à 0.05. Ainsi, notre modèle prend la forme suivante :
+$$ \mu = e^{7.032 + 2.074 \times 10^{-5} \times \text{arr_flights}} $$
+
+L'augmentation d'un vol (\(\text{arr_flights}\) augmentant de 1) entraîne une augmentation de la moyenne prévue de vols retardés (\(\mu\)) par un facteur de \[ e^{2.074 \times 10^{-5}} \]. Ce facteur représente la multiplicité par laquelle le nombre attendu de retards augmente pour chaque vol supplémentaire. Puisque \(2.074 \times 10^{-5}\) est un très petit nombre, l'augmentation de \(\mu\) pour chaque vol supplémentaire est également relativement petite, mais toujours significative. Cela indique que, bien que le nombre de vols ait un effet positif sur le nombre attendu de retards, cet effet est modeste pour chaque augmentation unitaire de \(\text{arr_flights}\).  
+
+
+##### **c) Comparer avec le modèle de régression simple**  
+
+Comparons maintenant les modèles : GLM Poisson, Binomial Négatif, et le modèle de régression linéaire simple selon les critères AIC, RMSE et MSE prédictifs ainsi que le Cp de Mallows.
+
+| Critère     | Nom Complet                         | Formule de Calcul                                             |
+|------------------|---------------------------------|---------------------|
+| RMSE        | Erreur Quadratique Moyenne Racine   | $\sqrt{\frac{1}{n}\sum (y_i - \hat{y}_i)^2}$                  |
+| AIC         | Critère d'Information d'Akaike      | $2k - 2\ln(L)$                                                |
+| $MSE_{prédict}$ | Somme des Carrés des Prédictions | $\sum (y_i - \hat{y}_{i,-i})^2$                                       |  
+
+
+Voyons le table de recuperatif:  
+
+```{r}
+
+list_m = list(model, model_poisson, model_bn)
+
+l_rmse = c()
+l_aic = c()
+l_press = c()
+
+
+PRESS = function(model) {
+  hat_values = lm.influence(model)$hat
+  residuals = residuals(model) 
+  press = sum((residuals / (1 - hat_values))^2)
+  return(press)
+}
+
+
+for (i in 1:length(list_m)) {
+  mo = list_m[[i]]
+  residuals = residuals(mo) 
+  l_aic = c(l_aic, round(AIC(mo), 4))
+  l_rmse = c(l_rmse, round(sqrt(mean(residuals^2)), 4))
+  l_press = c(l_press, round(PRESS(mo), 4))
+}
+
+res = as.data.frame(cbind(l_rmse, l_aic, l_press))
+colnames(res) = c("RMSE", "AIC", "MSE prédict")
+rownames(res) = c("Modèle linéaire simple", "Modèle Poisson", "Modèle Binomial Négatif")
+
+highlight_green  = function(x, best_value) {
+  ifelse(x == best_value, cell_spec(x, "html", background = "#2ecc71", color = "white"), x)
+}
+
+
+res$RMSE  = highlight_green(res$RMSE, min(res$RMSE))
+res$AIC  = highlight_green(res$AIC, min(res$AIC))
+res$`MSE prédict`  = highlight_green(res$`MSE prédict`, min(res$`MSE prédict`))
+
+kable(res, "html", escape = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F) %>%
+  column_spec(1, bold = T) %>%
+  row_spec(0, bold = T)
+```  
+
+D'après les trois critères précédents, nous constatons que le modèle de régression linéaire simple, appliqué aux variables transformées par le logarithme, est le meilleur parmi les trois modèles analysés.
+
+
+#### **3.3) ANOVA** {#ANOVA}
+
+Comme mentionné précédemment, dans cette partie, nous allons réaliser une ANOVA sur les variables explicatives `taille` et la variable à expliquer `percen_r`, qui représente le pourcentage de vols en retard. L'objectif est de déterminer si les différences entre les tailles d'aéroports ont un impact statistiquement significatif sur les variations observées dans les taux de retards.  
+
+
+##### **a) Introduction**
+
+L'analyse de variance (ANOVA) est une méthode statistique qui permet de comparer les moyennes de trois groupes ou plus pour déterminer si au moins un groupe diffère des autres. L'ANOVA est basée sur la comparaison de deux types de variance : la variance entre les groupes et la variance à l'intérieur des groupes. Si la variance entre les groupes est significativement plus grande que la variance à l'intérieur des groupes, alors on peut conclure qu'il y a une différence significative entre les moyennes des groupes.
+
+##### **b) Application**  
+
+##### b.1) Taille de échantillon  
+
+Voyons la taille de l'échantillon pour chaque groupe d'aéroport : 
+
+```{r}
+table(airport_summary$taille)
+```  
+
+Nous constatons donc ici un plan complet et `équilibré`, ce qui est normal puisque précédemment, nous avons classé les aéroports par quartiles de la variable `arr_flights`. De plus, étant donné que nous n'avons que 4 modalités pour la variable explicative `taille`, nous considérons qu'il s'agit ici d'un effet fixe.
+
+##### b.2) Distribution des groupes
+
+Explorons à nouveau la répartition des pourcentages de vols en retard à travers les différents groupes d'aéroports :  
+
+
+```{r}
+ggplot(airport_summary, aes(x = taille, y = percen_r, fill = taille)) +
+  geom_boxplot(outlier.alpha = 0, alpha=0.5) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.25), aes(color = taille), size = 3) +
+  stat_summary(fun=mean, geom="point",colour = 'red', shape=18, size=5, position = position_dodge(width = 0.75)) +
+
+  labs(x = "Taille d'aéroport",
+       y = "Pourcentage de vols en retard",
+       title = "Distribution des pourcentages de vols en retard selon la taille d'aéroport",
+       subtitle = "Années 2022 et 2023") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Comme mentionné précédemment et d'après le graphique des boîtes à moustaches, la répartition du pourcentage de vols en retard varie selon les tailles d'aéroport, comme en témoignent les boîtes à moustaches. Cela suggère une possible corrélation entre les différentes tailles d'aéroports.  
+
+Avant de procéder à l'ANOVA pour évaluer l'égalité des moyennes entre les groupes, nous devons d'abord confirmer si les distributions des données sont comparables entre eux. Cela est réalisé en employant le test de Kolmogorov-Smirnov, qui nous permet de tester l'hypothèse suivante :
+
+- **H0** : Les distributions des deux échantillons sont identiques.
+- **H1** : Il existe une différence entre les distributions des deux échantillons.
+
+Analysons les résultats obtenus de ce test préliminaire :
+
+```{r}
+df_pe = airport_summary$percen_r[airport_summary$taille == 'Petit']
+df_mo = airport_summary$percen_r[airport_summary$taille == 'Moyen']
+df_grand =  airport_summary$percen_r[airport_summary$taille == 'Grand']
+df_tre_grand =  airport_summary$percen_r[airport_summary$taille == 'Très Grand']
+
+pe1 = ks.test(df_pe, df_mo)$p.value
+pe2 = ks.test(df_pe, df_grand)$p.value
+pe3 = ks.test(df_pe, df_tre_grand)$p.value
+
+mo1 = ks.test(df_mo, df_grand)$p.value
+mo2 = ks.test(df_mo, df_tre_grand)$p.value
+
+ga = ks.test(df_grand, df_tre_grand)$p.value
+
+highlight_green_red = function(value, condition) {
+  ifelse(condition, cell_spec(value, "html", color = "white", background = "#2ecc71"), cell_spec(value, "html", color = "white", background = "#FF0000"))
+}
+
+h1_5_values = c(
+  highlight_green_red(sprintf("%.3f", pe1), pe1 > 0.05),
+  highlight_green_red(sprintf("%.3f", pe2), pe2 > 0.05),
+  highlight_green_red(sprintf("%.3f", pe3), pe3 > 0.05),
+  highlight_green_red(sprintf("%.3f", mo1), mo1 > 0.05),
+  highlight_green_red(sprintf("%.3f", mo2), mo2 > 0.05),
+  highlight_green_red(sprintf("%.3f", ga), ga > 0.05)
+)
+
+h1_5_df = data.frame(
+  `Groupe` = c("Petit vs Moyen","Petit vs Grand","Petit vs Très Grand","Moyen vs Grand","Moyen vs Très Grand","Grand vs Très Grand"),
+  `P.value` = h1_5_values,
+  stringsAsFactors = FALSE
+)
+
+kable(h1_5_df, "html", escape = F) %>%
+  kable_styling(full_width = F, font_size = 16) %>%
+  row_spec(0, bold = TRUE, color = "white", background = "#666666") %>%
+  column_spec(2) 
+```  
+
+La p-valeur de 0.316 indique qu'il n'y a pas de différence statistiquement significative entre les distributions de pourcentages des petits et moyens aéroports, suggérant qu'elles pourraient provenir de la même distribution. Cependant, des différences notables sont présentes dans les autres groupes. Ainsi, l'ANOVA ne compare pas directement les distributions entre des groupes ayant des distributions différentes, mais évalue plutôt l'équivalence des moyennes et des variances entre ces groupes.
+
+
+##### b.3) Moyenne et intervalle de confiance
+
+Voyons maintenant les moyennes et leurs intervalles de confiance pour chaque groupe :
+
+```{r}
+sta.t = data.frame(Groupe = c("Petit", "Moyen", "Grand","Très Grand"))
+
+sta.t$mean = tapply(airport_summary$percen_r, airport_summary$taille, mean)[sta.t$Groupe]
+
+sta.t$`IC 95%` = sapply(sta.t$Groupe, function(taille) {
+  ci = t.test(airport_summary$percen_r[airport_summary$taille == taille])$conf.int[1:2]
+  paste("[", round(ci[1], 4), ";", round(ci[2], 4), "]")
+})
+kable(sta.t)
+```           
+
+
+##### b.4) Réaliser ANOVA
+
+Nous procédons à une ANOVA en utilisant `percen_r ~ taille` pour examiner l'effet de la taille des aéroports sur le pourcentage de vols retardés. La taille des aéroports est divisée en plusieurs groupes, avec `petit` comme référence par défaut. Cette analyse vise à déterminer si la taille de l'aéroport a un impact significatif sur le pourcentage de vols retardés. Après avoir effectué l'ANOVA, nous utilisons la fonction `summary()` pour tester les hypothèses suivantes :
+
+- Le test t de Student est employé pour comparer le pourcentage de vols retardés moyen de chaque taille d'aéroport au groupe de référence (`petit`).
+
+  - **H0**: Il n'y a pas de différence significative dans le pourcentage moyen de vols retardés entre les différentes tailles d'aéroports et le groupe de référence
+  - **H1**: Il existe une différence significative dans le pourcentage moyen de vols retardés entre au moins une des tailles d'aéroports et le groupe de référence  
+  
+**Remarque** : Le t-test pour l'intercept est un peu différent de ceux pour les autres coefficients. Il nous donne des informations sur si la moyenne du groupe de référence (dans ce cas, les aéroports de la taille petite) est statistiquement différente de 0. Les hypothèses pour ce test sont les suivantes :  
+
+
+  - **H0** : La moyenne du pourcentage de vols retardés pour le groupe de référence (petite taille) est égale à 0
+  - **H1** : La moyenne du pourcentage de vols retardés pour le groupe de référence est différente de 0  
+
+
+- Le test F de Fisher est utilisé pour évaluer si les différences observées dans les pourcentages moyens de vols retardés entre les tailles d'aéroports sont statistiquement significatives.
+
+  - **H0**: Les pourcentages moyens de vols retardés sont les mêmes pour toutes les tailles d'aéroports
+  - **H1**: Au moins une des tailles d'aéroports présente un pourcentage moyen de vols retardés significativement différent des autres
+
+
+Voyons maintenant les résultats de l'ANOVA pour ce modèle et interprétons leur signification :
+
+```{r}
+lm1 = lm(percen_r~taille, data=airport_summary) 
+summary(lm1)
+```  
+
+D'après ces résultats, et en utilisant un seuil de 0.05, on observe que la moyenne des pourcentages de vols retardés dans le groupe de référence est significativement différente de 0, car la p-value du test t de Student est inférieure à 0.05. L'estimation de cette moyenne est de 17.2%. Pour le groupe d'aéroports de taille moyenne, il n'y a pas de différence significative avec le groupe d'aéroports de petite taille, puisque la p-value du test t de Student est nettement supérieure à 0.05. Pour les deux groupes restants, les p-values sont très faibles, ce qui indique qu'il y a une différence significative entre les groupes d'aéroports de taille grande et très grande par rapport au groupe d'aéroports de petite taille. Plus précisément, le groupe d'aéroports de taille grande a un pourcentage moyen de vols retardés supérieur de 2.4% comparé au groupe d'aéroports de petite taille, et pour le groupe d'aéroports de taille très grande, cette différence est de 3.8%. Cela est cohérent avec une analyse dans la partie [Analyser le nombre de vols retardés](#nb_vol_r), suggérant que plus la taille de l'aéroport est grande, plus le pourcentage de vols retardés est élevé.  
+
+
+
+
+##### b.5) Vérification des hypothèses
+
+Comme dans la régression linéaire, le résultat de l'ANOVA à un facteur est valide s'il vérifie les trois hypothèses suivantes :
+
+-   **Hypothèse 1 : Les erreurs sont indépendants**
+
+-   **Hypothèse 2 : Les erreurs suivent une loi normale de moyenne 0**
+
+-   **Hypothèse 3 : Les variances des erreurs sont constantes**
+
+On peut les tester par :
+
+-   Graphique :
+
+```{r}
+plot(lm1,1, pch =20, col = 'darkblue')
+```
+
+Ce graphique montre que la variance des résidus n'est pas constante, ce qui pourrait contester l'hypothèse d'homoscédasticité. La moyenne des résidus semble cependant être nulle, car ils sont distribués de manière symétrique autour de zéro. Par ailleurs, la distribution des résidus varie entre les trois groupes de tailles d'aéroports, mettant en doute l'hypothèse d'indépendance des résidus. De plus, il apparaît que plus un groupe d'aéroports est petit, plus grande est la dispersion des résidus, ce qui correspond aux observations faites dans la section [Analyser le nombre de vols retardés](#nb_vol_r). Cette observation est aussi soutenue par le graphique d'autocorrélation des résidus :  
+
+
+
+
+```{r}
+acf(resid(lm1))
+```  
+
+En utilisant le graphique ACF pour analyser les résidus de notre modèle, on constate clairement que la première barre dépasse la ligne bleue des bandes de confiance. Cela indique une autocorrélation positive significative au premier décalage, suggérant que les résidus à un instant donné sont corrélés avec ceux de l'instant précédent.
+
+```{r}
+plot(lm1,2, pch =20, col = 'darkblue')
+```
+
+Et, l'hypothèse de normalité des résidus est également rejetée d'après le graphique QQ plot.  
+
+-   Test statistique :
+```{r, warning=FALSE}
+residus = resid(lm1)
+r_g1 = residus[airport_summary$taille == 'Petit']
+r_g2 = residus[airport_summary$taille == 'Moyen']
+r_g3 = residus[airport_summary$taille == 'Grand']
+r_g4 = residus[airport_summary$taille == 'Très Grand']
+
+
+t_p_value = t.test(residus)$p.value
+ks_p_value = shapiro.test(residus)$p.value
+ks_p_value1 = shapiro.test(r_g1)$p.value
+ks_p_value2 = shapiro.test(r_g2)$p.value
+ks_p_value3 = shapiro.test(r_g3)$p.value
+ks_p_value4 = shapiro.test(r_g4)$p.value
+dw_p_value = Box.test(residus)$p.value
+bp_p_value = bartlett.test(residus~airport_summary$taille)$p.value #bartlette
+
+
+h1_5_values = c(
+  highlight_green_red(sprintf("%.3f", t_p_value), t_p_value > 0.05),
+  highlight_green_red(sprintf("%.3f", ks_p_value), ks_p_value > 0.05),
+  highlight_green_red(sprintf("%.3f", ks_p_value1), ks_p_value1 > 0.05),
+  highlight_green_red(sprintf("%.3f", ks_p_value2), ks_p_value2 > 0.05),
+  highlight_green_red(sprintf("%.3f", ks_p_value3), ks_p_value3 > 0.05),
+  highlight_green_red(sprintf("%.3f", ks_p_value4), ks_p_value4 > 0.05),
+  highlight_green_red(sprintf("%.3f", dw_p_value), dw_p_value > 0.05),
+  highlight_green_red(sprintf("%.3f", bp_p_value), bp_p_value > 0.05)
+)
+
+h1_5_df = data.frame(
+  Hypothèses = c("Moyenne nulle", "Normalité globale", "Normalité groupe 'Petit'", "Normalité groupe 'Moyen'", "Normalité groupe 'Grand'", "Normalité groupe 'Très Grand'", "Indépendance", "Homoscédasticité"),
+  `P-value` = h1_5_values,
+  `Test statistique` = c("Test t de Student", "Test de Shapiro-Wilk", "Test de Shapiro-Wilk", "Test de Shapiro-Wilk", "Test de Shapiro-Wilk", "Test de Shapiro-Wilk", "Test de Ljung-Box", "Test de Bartlett"),
+  stringsAsFactors = FALSE
+)
+
+
+kable(h1_5_df, "html", escape = F) %>%
+  kable_styling(full_width = F, font_size = 16) %>%
+  row_spec(0, bold = TRUE, color = "white", background = "#666666") %>%
+  column_spec(2) 
+
+```
+
+Ainsi, selon les tests statistiques, ce modèle valide uniquement l'hypothèse sur la moyenne nulle des résidus et l'hypothèse d'homoscédasticité des variances des résidus. Par conséquent, le résultat de l'ANOVA précédemment effectué sur ce modèle de régression n'est pas fiable.
+
+##### b.6) Comparaisons multiples
+
+L'approche des comparaisons multiples permet d'examiner les différences entre plusieurs groupes en comparant les moyennes de chaque paire de groupes, ou même en comparant toutes les moyennes les unes aux autres. Une complication de cette méthode est que le fait de réaliser plusieurs tests de comparaison augmente le risque d'identifier par erreur des différences significatives qui ne sont en réalité que le fruit du hasard. Ce phénomène conduit à une augmentation du risque alpha global, qui est le risque de commettre au moins une erreur de type I. Pour un test unique, le risque alpha est généralement fixé à 5%. Lorsque $n$ tests sont effectués simultanément, le risque alpha global est calculé par la formule :
+
+$$
+\alpha_{global} = 1 - (1 - \alpha)^n
+$$
+
+Pour contrôler le risque d'erreur dans les comparaisons multiples, nous utilisons le test de Tukey. Ce test ajuste les valeurs p afin de maintenir le risque alpha global à 5%, spécialement dans le cadre des analyses de variance à un seul facteur.
+
+Examinons maintenant le résumé de ce test :
+
+```{r, resize.width=10}
+
+mc_tukey = multcomp::glht(lm1, linfct=multcomp::mcp(taille="Tukey"))
+summary(mc_tukey)
+```
+
+L'analyse des résultats révèle les points suivants :
+
+1. **Petits vs Moyens aéroports** : Aucune différence statistiquement significative dans le pourcentage de vols retardés (p-value > 0.05), ce qui suggère des performances similaires entre ces catégories de taille.
+
+2. **Petits vs Grands aéroports** : Les grands aéroports présentent un pourcentage de vols retardés significativement plus élevé que les petits, avec une différence moyenne de 2.4375 (p-value < 0.05).
+
+3. **Petits vs Très grands aéroports** : Un écart encore plus prononcé est observé avec les très grands aéroports, affichant un surplus moyen de 3.8495 dans le pourcentage de vols retardés par rapport aux petits (p-value < 0.001).
+
+4. **Moyens vs Grands aéroports** : Les grands aéroports montrent une augmentation moyenne de 2.9565 dans le pourcentage de vols retardés comparé aux moyens (p-value < 0.001).
+
+5. **Moyens vs Très grands aéroports** : Les très grands aéroports démontrent une hausse moyenne de 4.3685 dans le pourcentage de vols retardés par rapport aux moyens (p-value < 0.001).
+
+6. **Grands vs Très grands aéroports** : Aucune différence statistiquement significative n'est détectée entre ces groupes, indiquant des taux de retard comparables (p-value > 0.05).
+
+Ces observations soulignent encore une fois la tendance générale : plus un aéroport est grand, plus le pourcentage de vols retardés semble augmenter, à l'exception de la comparaison entre grands et très grands aéroports où aucune différence notable n'est constatée.
+
+Voyons maintenant le résumé de la différence estimée entre les moyennes du pourcentage de vols retardés entre les différents groupes de taille d'aéroport :
+
+```{r, fig.width=10}
+par(mar=c(3,23,3,3))
+plot(mc_tukey, col = c("darkred","darkblue","darkorange3"))
+```  
+
+
+
+
+## **IV/ Analyse par dimension temporelle : année et mois** {#temps}
+
+### **Personne en charge : Xuan Tung VU**
+
+Cette section explore des techniques d'analyse avancées, en mettant l'accent sur la dimension temporelle des données. L'objectif est d'analyser comment le nombre de vols retardés varie au cours de l'année, en prenant en compte les variations saisonnières, les tendances de long terme et d'autres motifs cycliques.  
+
+
+
+### **a) Une vue ensemble**
+
+Voyons maintenant comment se distribue le nombre total de vols retardés au cours de l'année, mois par mois :  
+
+```{r}
+z = airports_tous %>%
+  group_by(year, month) %>%
+  summarize(total_delayed_flights = sum(arr_del15), .groups = "drop") 
+flight_ts = ts(z$total_delayed_flights, start = c(2022, 1), frequency = 12)
+ggplot(z, aes(x = month, y = total_delayed_flights, group = year, color = as.factor(year))) +
+  geom_line() + 
+  geom_point() + 
+  labs(x = 'Mois', y = 'Nombre total de vols retardés', 
+       title = 'Évolution mensuelle des vols retardés par année',
+       color = 'Année') +
+  theme_minimal() + 
+  scale_x_continuous(breaks = 1:12, labels = month.abb)
+```  
+
+```{r, include=FALSE}
+sd(z$total_delayed_flights[z$year == 2022])
+sd(z$total_delayed_flights[z$year == 2023])
+```
+
+L'analyse graphique démontre la tendance mensuelle des retards de vol sur deux années, 2022 et 2023. Initialement, janvier montre des chiffres similaires pour chaque année, avec un avantage marginal pour 2022, où il y a eu moins de retards. En février, les deux années affichent une réduction des retards, avec une amélioration plus significative en 2023, équilibrant ainsi les retards entre les deux périodes. Mars présente une hausse des retards dans les deux annee, particulièrement prononcée en 2023, peut-être due aux voyages accrus pendant les vacances de printemps.
+
+Au cours du second trimestre, la fréquence des retards en 2022 reste constante, tandis qu'en 2023, une diminution notable est observée, suggérant une éventuelle optimisation des opérations aériennes ou des conditions de voyage améliorées cette année-là.
+
+Le troisième trimestre voit une recrudescence des retards pour les deux ans, surtout en juillet 2023. Cette période coïncide avec les vacances d'été et des festivals, habituellement associée à une intensification du trafic aérien. En 2022, juillet connaît également une hausse, bien qu'elle soit moins marquée que celle de 2023. La fin de ce trimestre montre une diminution des retards, plus prononcée en 2023, résultant en des chiffres comparables entre les deux années à cette période, probablement à cause du retour au travail post-vacances.
+
+Dans le dernier trimestre, octobre témoigne d'une baisse des retards de vol, particulièrement nette en 2023, tandis qu'en 2022, la réduction est plus modeste. Les retards de 2023 continuent de décroître, atteignant un minimum en novembre avant une légère remontée en décembre. À l'inverse, 2022 enregistre une augmentation progressive vers la fin de l'année, avec un pic en décembre. Cette divergence pourrait signaler soit un manque de données pour décembre 2023, soit une amélioration sensible dans la gestion des opérations aéroportuaires pour cette période.
+
+L'écart-type des vols retardés montre que 2023 a une plus grande variabilité mensuelle, avec un écart-type de 27410, comparativement à 19334 en 2022. Cette dispersion plus large en 2023 indique des améliorations dans certains mois mais des augmentations substantielles des retards dans d'autres, reflétant une possible fluctuation dans les facteurs affectant les retards de vol. 
+
+Et pour obtenir une vue d'ensemble continue sur les deux années, nous élaborons une série temporelle reliant directement les données de 2023 à celles de 2024. Examinons maintenant cette série :  
+```{r}
+autoplot(flight_ts, col = 'darkred') +xlab("Temps") + ylab("Nombre de vols retardés")
+```  
+
+
+
+- **Détecter Auto-corrélation**
+L'autocorrélation dans une série temporelle fait référence à la corrélation d'une série avec elle-même décalée dans le temps. Ainsi, une mesure à un instant donné `t` peut être influencée par ses propres valeurs passées (`t - 1`, `t - 2`, `t - 3`, ...) ou futures (`t + 1`, `t + 2`, `t + 3`, ...). Ce phénomène, qui s'observe quand la corrélation ne se limite pas uniquement au moment présent mais se prolonge à travers différents instants, est quantifié à travers l'application de décalages, ou `lags`.  
+
+
+La saisonnalité réfère aux variations régulières et prédictibles qui surviennent à des intervalles déterminés, comme par exemple les changements saisonniers ou mensuels, révélant des motifs ou des cycles qui se répètent dans les données. En observant les données précédentes, nous remarquons que les mois de février, août, et septembre montrent des diminutions dans le nombre de vols retardés. De même, pendant les périodes de vacances, les retards tendent à s'accroître pour les deux années analysées, indiquant ainsi la présence d'une saisonnalité dans notre série de données. Voyons ce graphique de polaire suivant :  
+
+```{r}
+ggseasonplot(flight_ts, polar = T, main = '')
+```  
+
+
+Ce graphique affiche la saisonnalité des vols retardés pour 2022 et 2023, avec des variations mensuelles autour d'un cercle qui représente l'année. Les pics de juin et juillet dans les deux années coïncident avec les vacances d'été, une période typique de forte activité aérienne. La réduction observée en février, août et septembre pourrait indiquer des périodes de moindre trafic aérien ou une meilleure gestion des horaires de vol. L'écart significatif en décembre, où 2022 dépasse largement 2023 en termes de retards, peut suggérer une amélioration dans la gestion des opérations aériennes ou des conditions météorologiques plus favorables en 2023. 
+
+Cela peut également être observé sur le graphique de la fonction d'autocorrélation suivant :
+```{r}
+ggAcf(flight_ts)
+```  
+
+D'après ce graphique, on observe qu'il y a une seule barre qui dépasse le seuil de signification. Cela signifie que si un retard significatif est observé un mois (t), il est probable qu'un retard similaire se produise le mois suivant (t+1).
+
+### **b) La répartition des causes de retards de vols par mois**
+
+```{r}
+res1 = airports_tous %>%
+  group_by(Mois = airports_tous$month) %>% 
+  summarize(
+    Nb_vol = sum(arr_flights),
+    Nb_vol_retard_total = sum(arr_del15),
+    `Compagnie aérienne` = sum(carrier_ct)/ Nb_vol_retard_total,
+    `Système national d'aviation` = sum(nas_ct)/ Nb_vol_retard_total,
+    `Avion précédent` = sum(late_aircraft_ct)/ Nb_vol_retard_total, 
+    Météo = (sum(arr_del15) - sum(carrier_ct + nas_ct + late_aircraft_ct))/Nb_vol_retard_total)
+```
+
+Analysons maintenant la répartition des causes de retards de vols par mois :
+
+```{r}
+res1_long = pivot_longer(res1, cols = c(`Compagnie aérienne`, `Système national d'aviation`, 
+                                        `Avion précédent`, Météo)
+                         , names_to = "Type", values_to = "Proportion")
+
+p = ggplot(res1_long, aes(x = Mois, y = Nb_vol_retard_total * Proportion, fill = Type
+                          , text = paste("Nombre:", round(Nb_vol_retard_total * Proportion)))) + 
+  geom_bar(stat = "identity", position = "stack") +
+  scale_x_continuous(breaks = res1_long$Mois) +
+  theme_minimal() + 
+  labs(x = "Mois", y = "Nombre de vols retardés", 
+       title = "Répartition des causes de retards de vols par mois",
+       subtitle = "En 2022 et 2023", fill = "Cause de retard")
+ggplotly(p, tooltip = "text") 
+```  
+
+D'après l'analyse de ce graphique, il apparaît clairement que les retards liés à l'avion précédent constituent la cause la plus courante des perturbations, conservant la première place tout au long de l'année. Ce type de retard peut souvent être attribué à l'effet domino des retards accumulés tout au long de la journée. En deuxième lieu, les retards imputés aux compagnies aériennes sont également significatifs, suggérant des problèmes opérationnels internes tels que la gestion du personnel, la maintenance des aéronefs, ou d'autres problèmes logistiques.
+
+Concernant les retards dus au système national d'aviation, ils atteignent leur apogée en mars, avec près de 70 535 vols affectés. Cela pourrait refléter des problèmes spécifiques comme des mises à jour du système de contrôle du trafic aérien ou des défis logistiques saisonniers. Le mois de juillet, quant à lui, se distingue par le nombre le plus élevé de retards dus à l'avion précédent (117 439 vols) et à la compagnie aérienne (104 246 vols), soulignant l'impact des volumes de trafic élevés pendant la haute saison estivale.
+
+Par ailleurs, la météo reste une cause prépondérante de retard pendant les mois d'été, avec le pic en juillet où 14 350 vols ont été retardés à cause de conditions météorologiques défavorables. Les phénomènes tels que les orages, courants durant cette période, peuvent provoquer des fermetures temporaires des aéroports, des retards au décollage, et des détournements, contribuant ainsi à l'augmentation des retards.  
+
+## ***V/ Analyse par compagnie aérienne***
+
+### **Personne en charge : Romain LAUNAY** 
+
+```{r}
+airport = g_airc
+```
+
+### **a) Premières analyses graphiques**
+
+On commence par faire une première analyse des données par mois et année. Ainsi, on tient à distinguer les 5 compagnies aériennes ayant cumulées le plus de vols de retards (toutes causes confondues). On distingue les retards causés par les compagnies aériennes, par les conditions météorologiques, par la NAS (National Aviation Services), par des problèmes de sécurité et par un autre vol lui-même retardé.
+
+```{r}
+N <- aggregate(carrier_ct + weather_ct + nas_ct + security_ct + late_aircraft_ct ~ carrier_name, data = airport, FUN = sum)
+nom <- setNames(N, c("Compagnie aérienne", "Nbr vols retardés"))
+print(nom)
+```
+Avec ce regroupement, nous obtenons le nombre de vols retardés total par compagnie aérienne. Enfin, on fait le rapport entre le nombre de vols retardés total et le nombre de vols opérationnels par compagnie aérienne. 
+```{r}
+L <- aggregate(arr_flights ~ carrier_name, data = airport, FUN = sum)
+retard <- merge(N,L)
+retard$proportion <- retard$`carrier_ct + weather_ct + nas_ct + security_ct + late_aircraft_ct`/retard$arr_flights*100
+nm <- setNames(retard, c("Compagnie", "Nbr vols retardés", "Nbr vols operationnels", "Pourcentage de vols retard"))
+nm[order(nm$Pourcentage, decreasing = TRUE), ]
+```
+
+Au vue de cette sortie, les cinq compagnies aériennes les plus en retard sont _JetBlue Airways_ ; _Frontier Airlines Inc._ ; _Allegiant Air_ ; _Spirit Air Lines_ et _Hawaiian Airlines Inc._
+
+Maintenant, on décide de faire une analyse graphique des causes de retards de ces compagnies. Ainsi, on regarde les moyennes des causes de retard par année. On constate que les trois premières causes de retard sont majoritairement dûes au compagnie (_carrier_ct_), à un autre vol lui-même retardé (_late_aircraft_ct_) et à la National Aviation Services (_nas_ct_). A contrario, on constate que les retards causés par la météo et la sécurité sont plus occasionnels. Enfin, pour la compagnie aérienne _Hawaiian Airlines Inc._ il n'y a que deux principales causes de retard qui sont dues au transporteur et à un vol lui-même en retard.
+
+```{r}
+A <- aggregate(cbind(carrier_ct, weather_ct, nas_ct, security_ct, late_aircraft_ct) ~ carrier_name + year, data = airport, FUN = mean)
+couleurs <- c("red", "blue", "green", "orange", "purple")
+
+Jetblue2022 <- as.numeric(A[10,3:7])
+Jetblue2023 <- as.numeric(A[26,3:7])
+
+Frontier2022 <- as.numeric(A[7,3:7])
+Frontier2023 <- as.numeric(A[24,3:7])
+
+Allegiant2022 <- as.numeric(A[2,3:7])
+Allegiant2023 <- as.numeric(A[19,3:7])
+
+circ <- ggplot() +
+  geom_bar(aes(x = "", y = Jetblue2022, fill = couleurs), width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = couleurs, labels = c("Weather", "NAS", "Security", "Late aircraft", "Carrier")) +
+  labs(fill = "Cause du retard") +
+  ggtitle("2022") +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.5))
+
+circ2 <- ggplot() +
+  geom_bar(aes(x = "", y = Jetblue2023, fill = couleurs), width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = couleurs, labels = c("Weather", "NAS", "Security", "Late aircraft", "Carrier")) +
+  labs(fill = "Cause du retard") +
+  ggtitle("2023") +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.5))
+
+circ3 <- ggplot() +
+  geom_bar(aes(x = "", y = Frontier2022, fill = couleurs), width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = couleurs, labels = c("Weather", "NAS", "Security", "Late aircraft", "Carrier")) +
+  labs(fill = "Cause du retard") +
+  ggtitle("2022") +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.5))
+
+circ4 <- ggplot() +
+  geom_bar(aes(x = "", y = Frontier2023, fill = couleurs), width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = couleurs, labels = c("Weather", "NAS", "Security", "Late aircraft", "Carrier")) +
+  labs(fill = "Cause du retard") +
+  ggtitle("2023") +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.5))
+
+circ5 <- ggplot() +
+  geom_bar(aes(x = "", y = Allegiant2022, fill = couleurs), width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = couleurs, labels = c("Weather", "NAS", "Security", "Late aircraft", "Carrier")) +
+  labs(fill = "Cause du retard") +
+  ggtitle("2022") +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.5))
+
+circ6 <- ggplot() +
+  geom_bar(aes(x = "", y = Allegiant2023, fill = couleurs), width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = couleurs, labels = c("Weather", "NAS", "Security", "Late aircraft", "Carrier")) +
+  labs(fill = "Cause du retard") +
+  ggtitle("2023") +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.5))
+
+titre1 <- textGrob("JetBlue Airways", x = 0.5, y = -10, gp = gpar(fontsize = 18, fontface = "bold"))
+titre2 <- textGrob("Frontier Airlines Inc.", x = 0.5, y = -10, gp = gpar(fontsize = 18, fontface = "bold"))
+titre3 <- textGrob("Allegiant Air", x = 0.5, y = -10, gp = gpar(fontsize = 18, fontface = "bold"))
+
+
+grid.arrange(top = arrangeGrob(titre1, heights = unit(c(1, 2), "null")), circ, circ2, ncol = 2, nrow = 1)
+grid.arrange(top = arrangeGrob(titre2, heights = unit(c(1, 2), "null")), circ3, circ4, ncol = 2, nrow = 1)
+grid.arrange(top = arrangeGrob(titre3, heights = unit(c(1, 2), "null")), circ5, circ6, ncol = 2, nrow = 1)
+
+```
+
+### **b) Matrice  de corrélation**
+
+On se propose d'analyser la matrice de corrélation de la base de données pour  nous permettre de visualiser les relations linéaires entre les variables de notre base de données. On cherche à savoir quelles sont les variables fortement corrélées et celles qui évoluent ensemble.
+```{r}
+M = cor(airport[,4:16])
+corrplot::corrplot(M, method = 'number',type="upper" ,number.cex = 0.5,tl.cex=0.6)
+```
+D'une part, on voit que tous les coefficients de corrélation sont positifs  montrant que les variables sélectionnées évoluent dans le même sens. Ainsi, on constate une forte corrélation positive entre les variables :
+- _carrier_ct_, _nas_ct_, _late_aircraft_ct_ et _arr_delay_ (dont les coefficients de corrélation sont 0.91, 0.84 et 0.82 respectivement)
+- _arr_delay_ et _carrier_ct_, _nas_ct_, _late_aircraft_ct_ (dont les coefficients de corrélation sont 0.94, 0.84 et 0.96 respectivement).
+- _carrier_ct_ et _late_aircraft_ct_, _carrier_delay_ et _late_aircraft_delay_ (dont les coefficients de corrélation sont 0.86, 0.91 et 0.93 respectivement).
+- _nas_ct_ et _late_aircraft_ct_, _arr_delay_, _nas_delay_ et _late_aircraft_delay_ (dont les coefficients de corrélation sont 0.82, 0.84, 0.96 et 0.84 respectivement).
+
+D'autre part, on constate des variables plus faiblement corrélées positives, ce qui montre un impact moindre entre elles et les autres variables. C'est le cas des variables _weather_ct_ et _security_ct_.
+
+Remarque : On aperçoit des redondances d'informations. En effet, il y a une très forte corrélation entre _weather_ct_ et _weather_delay_, mais elle est très logique. En effet, _weather_ct_ représente le nombre de vols retardés à cause de la météo et _weather_delay_ le nombre de minutes de retard causés par les conditions météorologiques, donc bien sûr que ces dernières sont très fortement corrélées. On retrouve le même phénomène avec les variables : _nas_ct_ et _nas_delay_ ; _carrier_ct_ et _carrier_delay_ ; _late_aircraft_ct_ et _late_aircraft_delay_ ; _security_ct_ et _security_delay_.
+
+### **c) ACP**
+On décide d'effectuer une ACP sur la base de données car elle possède beaucoup de variables. En effet, en réduisant la dimensionnalité des données en transformant en un nombre plus restreint de variables (les composantes principales) capturant le maximum de variabilité des données. Ainsi, cela nous permettra de simplifier l'analyse et la visualisation des données, tout en préservant l'essentiel de l'information.
+
+Avant de commencer l'ACP, on centralise les données pour que chaque variable ait une moyenne de zéro et un écart-type de un. Cela va nous permettre de comparer les variables sur une même échelle.
+```{r}
+acp <- PCA(airport[,4:16],graph=FALSE, scale = TRUE)
+```
+Avant d'interpréter les résultats de l'ACP, nous devons sélectionner un nombre de composantes principales à retenir.
+```{r}
+fviz_screeplot(acp, addlabels = TRUE)
+```
+Ce graphique permet de mettre en valeur le pourcentage de variance expliquée par rapport à la dimension. Nous remarquons que le premier axe résume 71,85% de la variabilité des individus et 12,79% quant au deuxième axe. En effet, à eux deux ils résument 84,64% de la variabilité totale des individus. Au vue de ces observations, il n’est probablement pas nécessaire pour l’analyse d’interpréter les dimensions suivantes (7.6% pour le 3ème axe et 3.6% pour le 4ème axe). Ainsi, nous décidons de garder les deux premiers axes.
+
+```{r}
+fviz_pca_var(acp, axes = c(1,2), col.var = "cos2", gradient.cols = c("yellow", "orange", "red"), repel = TRUE)
+fviz_pca_ind(acp, label = 'none', pch = 16, col.ind = airport$carrier_name)
+```
+Après avoir sélectionné le nombre d'axes à retenir, on poursuit avec l'interprétation du cercle de corrélations et des axes.
+
+- Interprétation de l'axe 1 : Nous remarquons que les variables _arr_del15_ (0.979), _arr_delay_ (0.975), _carrier_ct_ (0.942), _late_aircraft_ct_ (0.915), _arr_flights_ (0.902) et _carrier_delay_ (0.902) sont très fortement corrélées avec la première dimension. Ainsi, ces variables contribuent significativement à l'axe 1 en termes de variance expliquée. Leur concentration de corrélation élevée indique qu'elles sont étroitement liées à la première composante principale. Enfin, l'axe 1 semble principalement capturer les informations liées aux arrivées de vols, à leur ponctualité et aux retards associés. La forte corrélation avec arr_flights et arr_del15 suggère que la fréquence des vols et le nombre de vols arrivés en retard sont des facteurs importants influençant cette composante. Ainsi, l'axe 1 oppose des individus caractérisés par un grand nombre de vols opérationnels, avec un nombre important de vols retardés de 15 min et un nombre important de vols retardés à cause des compagnies aériennes à des individus caractérisés par un faible nombre de vols opérationnels, avec un faible nombre de vols retardés de 15 min et un nombre faible de vols retardés à cause des compagnies aériennes.
+
+- Interprétation de l'axe 2 : Nous remarquons que les variables _weather_ct_ (0.707) et _weather_delay_ (0.747) sont corrélées avec la deuxième dimension. De plus, ces variables contribuent significativement à l'axe 2 en termes de variance expliquée. Cependant leurs contributions sont  moins importantes que celles de l'axe 1 mais, elles jouent un rôle significatif dans la variation des données. Enfin, l'axe 2 semble être influencé par des facteurs liés aux conditions météorologiques (weather_ct et weather_delay). La forte corrélation avec ces variables suggère que les conditions météorologiques peuvent être des déterminants importants de la qualité des arrivées de vols. Ainsi, l'axe 2 oppose des individus caractérisés par un grand nombre de vols retardés par les conditions météorologiques à des individus avec un nombre faible de vols retardés par les conditions météorologiques.
+
+Remarque : Les variables _security_delay_ et _security_ct_ ont l'air d'être orthogonales aux variables _weather_delay_ et _weather_ct_. Ainsi, on peut conclure que les variables _security_delay_ et _security_ct_ n'ont pas l'air de dépendre des variables _weather_delay_ et _weather_ct_.
+
+### **d) K-means**
+
+On considère qu'une observation est la donnée d'un aéroport par mois et par année sur ses retards avec ses causes. Le but final est d'avoir K clusters dans lesquels les observations au sein de chaque cluster sont assez similaires les unes aux autres tandis que les observations dans différents clusters sont très différentes les unes des autres.
+
+Avant d'appliquer l'algorithme des k-means, on commence par centrer et réduire les données. 
+
+```{r}
+df <- scale(airport[,4:16])
+```
+Par la suite, nous avons besoin de spécifier le nombre de clusters qu'on ne sait pas à l'avance. On va chercher le nombre de clusters optimal pour appliquer l'algorithme des k-means. Ainsi, on utilise la méthode silhouette c'est-à-dire qu'on cherche un nombre de clusters qui maximise la largeur moyenne de la silhouette.
+
+```{r}
+fviz_nbclust(df, kmeans, method = "silhouette", k.max = 18)
+```
+Par cette méthode, on trouve que pour un nombre de clusters égal à 2 la moyenne est la plus grande. Ainsi, cette méthode suggère d'utiliser l'algorithme des k-means avec k = 2
+
+Remarque : Il existe d'autres méthodes pour trouver le nombre optimale de clusters, par exemple on aurait pu utiliser la méthode "wss" (c'est-à-dire qu'on compare le nombre de clusters par rapport à la minimisation de la somme des carrés des écarts à l'intérieur des clusters). D'ailleurs, par cette méthode on trouve aussi un nombre de clusters optimals qui vaut 2. Ce qui renforce l'idée de prendre k = 2 clusters dans notre algorithme.
+
+```{r}
+fviz_nbclust(df, kmeans, method = "wss", k.max = 18)
+```
+Nous choisissons k = 2 comme nombre de clusters et on applique l'algorithme des K-means.
+
+```{r}
+km <- kmeans(df, centers = 2)
+fviz_cluster(km, data = df, labelsize = 0)
+```
+
+### **e) Régression linéaire simple**
+
+On souhaite effectuer une régression linéaire entre le nombre de vols opérationnels et le temps total (en minutes) de retard. En effet, on souhaiterait prédire le temps total (en minutes) de retard en fonction du nombre de vols opérationnels. Ainsi, on va prendre le nombre de vols opérationnels _arr_flights_ comme variable indépendante et le temps total de retard _arr_delay_ comme variable dépendante. 
+
+Remarque : On avait vu, grâce à la matrice de corrélation, que ces deux variables étaient bien corrélées (0.85).
+
+Avant d'effectuer le modèle de régression, on se propose d'explorer les données en regardant la répartition de ces variables à l'aide d'histogrammes.
+
+```{r}
+hist(airport$arr_delay, freq = FALSE)
+lines(density(airport$arr_delay), col = "blue")
+
+hist(airport$arr_flights, freq = FALSE)
+lines(density(airport$arr_flights), col = "blue")
+```
+Au vue de ces deux graphiques, nous observons que la distribution de ces deux variables ont l'air d'être plutôt asymétriques à gauche c'est-à-dire qu'on a une forte concentration des valeurs proche de zéro.
+
+Maintenant, nous construisons notre modèle de régression linéaire simple en prenant _arr_flights_ comme variable indépendante et _arr_delay_ comme variable dépendante.
+
+```{r}
+lm <- lm(arr_delay ~ arr_flights,data = airport)
+summary(lm)
+```
+Analysons la sortie de modèle, nous trouvons un R-carré de 0.7192 ce qui signifie que 71.92% de la variabilité de _arr_delay_ est expliquée par _arr_flights_. La p-value associée est très faible (< 2.2e-16), indiquant que le modèle dans son ensemble est statistiquement significatif. Cependant, on doit faire le diagnostic du modèle de régression c'est-à-dire de vérifier la validité des hypothèses du modèle.
+
+Premièrement, on décide de faire ce diagnostic à l'aide des graphiques et par la suite, nous le ferons à l'aide de tests.
+
+```{r}
+par(mfrow = c(2, 3))
+plot(lm, which=c(1,2,3,4))
+```
+- Premier graphique : Ce graphique met en lumière la relation entre les résidus standardisés (ce sont les résidus divisés par leur écart-type, qui sont souvent utilisés pour identifier les valeurs aberrantes) et les valeurs ajustées. Nous remarquons que les résidus standardisés n'ont pas vraiment l'air d'être centrés autour de zéro surtout vers la fin. Pour être sûr de valider ou de rejeter l'hypothèse de l'homogénéité des résidus, on ferra un test.
+
+- Deuxième graphique : Le graphique Q-Q plot représente la relation entre les quantiles des résidus avec ceux d'une distribution normale. Ainsi, cela permet de voir si les résidus suivent une distribution normale et si c'est le cas alors, les quantiles théoriques doivent former une droite. Dans notre cas, encore une fois il est difficile de conclure graphiquement. 
+
+- Troisième graphique : La relation des résidus standardisés et de la racine carrée des valeurs absolues des résidus sont mise en avant dans ce graphique. Il est intéressant d’analyser ce dernier pour détecter les problèmes de variance hétéroscédastique. Ici, on remarque que les points montrent une dispersion non uniforme pouvant indiquer la présence de variance hétéroscédastique.
+
+Remarque : Le quatrième graphique sera analysé un peu plus loin dans la sous-section sur les influences.
+
+A priori, il semblerait qu'il est difficile de conclure sur la validité des hypothèses ainsi, pour avoir un avis définitif, on effectue une succession de tests.
+```{r}
+library(car)
+durbinWatsonTest(lm)
+```
+Ainsi, on commence avec le test de Durbin-Watson pour vérifier l'hypothèse de non autocorrélation des résidus. Cependant, le test n'est pas validé car, la p-value est strictement inférieure à 0.05, donc il y a présence d'autocorrélation.
+
+```{r}
+shapiro.test(residuals(lm))
+```
+Ensuite, on poursuit avec le test de Shapiro pour vérifier l'hypothèse de la normalité des résidus. Cependant, le test n'est pas validé car, la p-value est strictement inférieure à 2.2e-16, donc l'hypothèse de la normalité des résidus est rejetée.
+
+```{r}
+Box.test(residuals(lm))
+```
+On continue avec le test de Box-Pierce pour vérifier l'hypothèse d'indépendance des résidus. Cependant, le test n'est pas validé car, la p-value est inférieure à 2.2e-16, donc l'hypothèse d'indépendance des résidus est rejetée.
+
+```{r}
+bptest(lm)
+```
+Enfin, on termine avec le test de Breusch-Pagan pour vérifier l'hypothèse selon laquelle la variance des résidus est constante (homoscédasticité). Cependant, le test n'est pas validé car, la p-value est égale à 9.118e-15 donc, cette hypothèse n'est pas validée.
+
+Ainsi, aucune hypothèse n'est validée et dans ce cas, le modèle de régression simple est rejeté.
+
+### **f) Transformation de Box-Cox**
+
+On souhaite effectuer une transformation de Box-Cox pour stabiliser la variance et rendre les données plus proches de la normalité. Cette transformation peut être utile car, nos données ne respectent pas les hypothèses de l'homoscédasticité et la normalité des résidus.
+
+```{r}
+x <- airport$arr_delay
+y <- airport$arr_flights
+bc <- MASS::boxcox(lm(x ~ y))
+```
+En effet, on commence par explorer différentes valeurs de lambda afin de trouver la transformation qui maximise la vraisemblance du modèle. Ainsi, cela va permettre de déterminer quelle transformation rend les résidus les plus proches d'une distribution normale et qui stabilise la variance.
+
+```{r}
+lambda <- bc$x[which.max(bc$y)]
+new_lm <- lm(((y^lambda-1)/lambda) ~ x)
+summary(new_lm)
+```
+Ainsi, on récupère le lambda qui maximise la vraisemblance du modèle et on transforme notre modèle de base. Enfin, on analyse le modèle de régression après transformation des données.
+
+On remarque que nous avons un R-carré de 0.7104 soit 71.04% de la variabilité de _arr_delay_ est expliquée par _arr_flights_. De plus, la p-value associée est très faible (< 2.2e-16), indiquant que le modèle dans son ensemble est statistiquement significatif. Ainsi, on passe au diagnostic du modèle de régression avec les graphiquement, d'une part.
+
+```{r}
+par(mfrow = c(2, 3))
+plot(new_lm, which=c(1,2,3,4))
+```
+Ainsi, nous remarquons que le modèle après transformation n'à pas l'air d'être mieux. En effet :
+
+- Premier graphique : Les résidus standardisés ne sont pas mieux centrés autour de zéro. Ainsi, l'hypothèse de l'homogénéité des résidus ne semble pas validée.
+
+- Deuxième graphique : Nous constatons que les quantiles théoriques ont l'air d'être plus linéaires afin de former une droite. On effectuera un test de Shapiro pour confirmer ou non cette hypothèse.
+
+- Troisième graphique : Les points montrent toujours une dispersion non uniforme pouvant indiquer la présence de variance hétéroscédastique.
+
+A première vue, cette transformation ne semble pas très concluante, mais nous décidons d'effectuer des tests pour conclure.
+
+```{r}
+library(car)
+durbinWatsonTest(lm)
+```
+Ainsi, on effectue le test de Durbin-Watson pour vérifier l'hypothèse de la non autocorrélation des résidus. Cependant, le test n'est pas validé car, la p-value est strictement inférieure à 0.05, donc il y a présence d'autocorrélation.
+
+```{r}
+par(pty = "s", mfrow = c(1, 2))
+
+#Q-Q plot du modèle de base
+qqnorm(lm$residuals)
+qqline(lm$residuals)
+
+#Q-Q plot du modèle après transformation de Box-cox
+qqnorm(new_lm$residuals)
+qqline(new_lm$residuals)
+
+shapiro.test(residuals(new_lm))
+```
+On compare le Q-Q plot du modèle de base avant transformation et après transformation. On constate une amélioration, mais on effectue un test de Shapiro pour être sûr. Malgré une légère amélioration visuelle, le test n'est pas validé car, la p-value vaut 2.605e-07, donc l'hypothèse de la normalité des résidus est rejetée.
+
+```{r}
+Box.test(residuals(new_lm))
+```
+Le test de Box-Pierce est utilisé pour vérifier l'hypothèse d'indépendance des résidus. Cependant, le test n'est pas validé car, la p-value est inférieure à 2.2e-16, donc l'hypothèse d'indépendance des résidus est rejetée.
+
+```{r}
+bptest(new_lm)
+```
+On termine avec le test de Breusch-Pagan pour vérifier l'hypothèse selon laquelle la variance des résidus est constante (homoscédasticité). Malgré une très légère amélioration, le test n'est pas validé car, la p-value 1.03e-14 donc, cette hypothèse n'est pas validée.
+
+Ainsi, on conclut que la transformation de Box-Cox n'a pas permis de valider les hypothèses du modèle de régression. Enfin, ce modèle n'est pas retenu. 
+
+### **g) Influences**
+
+On se propose dans cette sous-section d'étudier les influences du modèle de régression c’est-à-dire les valeurs qui ont une influence disproportionnée sur le modèle. On revient sur les graphiques des résidus notamment de la distance de Cook et des résidus standardisés car ils nous donnent une première indication des points qui s'écartent de la tendance générale et de ceux qui influencent le modèle.
+```{r}
+par(mfrow = c(2, 3))
+plot(lm, which=c(1,2,3,4))
+```
+- Quatrième graphique : Ce graphique met en lumière les observations les plus influentes dans le modèle, c'est-à-dire les observations qui ont un impact disproportionné sur le modèle.
+
+Au vu des trois premiers graphiques, nous constatons que les valeurs 66, 67 et 68 sont des points atypiques. De plus, le graphique sur la distance de Cook met en valeur 66, 67 et 335 comme points influents. Ainsi, confirmons et complétons ces analyses graphiques.
+
+```{r}
+n=nrow(airport)
+rt=rstudent(lm)
+which(abs(rt)>qt(1-0.05/2,n-1-2))
+```
+On calcule les résidus standardisés pour chaque observation du modèle de régression afin d'identifier les observations dont les résidus standardisés sont supérieurs au quantile d'une distribution t de Student avec un seuil de significativité de 0,05. Ainsi, en sortie nous avons toutes les observations considérées comme potentiellement aberrantes ou influentes dans le modèle de régression.
+
+Maintenant, on décide de faire test d'outliers permettant de détecter les valeurs aberrantes de notre modèle de régression.
+```{r}
+outlierTest(lm)
+```
+En sortie, nous retrouvons les valeurs 67, 66 et 68 dont leurs résidus standardisés sont élevés et des p-values ajustées très faibles (tous strictement inférieur à 0.05). Ce qui indique que ce sont des outliers potentiels.
+
+On regarde maintenant les influences c'est-à-dire les points qui ont le plus d'effet sur le modèle.
+
+```{r}
+im=influence.measures(lm)
+which(apply(im$is.inf,1,any))
+dcook=signif(cooks.distance(lm),3)
+
+which(dcook>4/(nrow(airport)-2))
+dcook=signif(cooks.distance(lm),3)
+which(dcook>4/(nrow(airport)))
+
+summary(im)
+```
+
+Nous obtenons les mesures d'influence pour chaque observation du modèle de régression linéaire qui permet d'évaluer leur impact sur les résultats du modèle.
+
+Analysons cette sortie, on commence par regarder la colonne des valeurs de dffit qui mesurent l'influence de chaque observation sur les valeurs ajustées du modèle. Ainsi, nous avons dans l'ordre : 67, 335, 66, 68, 336 et 331.
+
+Ainsi, on regarde les valeurs de la distance de Cook pour chaque observation. Nous retrouvons les mêmes observations dans le même ordre : 67, 335, 66, 68, 336 et 331. 
+
+Enfin, on regarde la colonne des valeurs de hat, qui représentent les leviers pour chaque observation. Nous avons 331, 334 et 336 comme observations qui ont un impact important sur le modèle.
+
+On termine par un graphique de toutes les influences du modèle.
+```{r}
+influencePlot(lm)
+```
+
+En sortie, nous avons cinq valeurs : 66, 67, 334, 335 et 336. De plus, 66 et 67 ont les plus grandes valeurs de _StudRes_ (respectivement 5.36 et 6.39) montrent une  influence exagérée de ces valeurs sur le modèle. Cependant, les valeurs 334, 335 et 336 ont une influence non négligeable.
+
+## **VI/ Conclusion**    
+
+
+
+### **Personne en charge : Xuan Tung VU, Romain LAUNAY** 
+
+Dans cette étude, nous avons effectué une analyse détaillée des retards de vol aux États-Unis, en scrutant les données issues de divers aéroports et compagnies aériennes. L'examen des aéroports révèle que la plupart des retards sont attribuables à la gestion des vols antérieurs et aux opérations des compagnies, bien qu'une part non négligeable provienne de problèmes de sécurité. Bien rares (8 605 retards sur plus de 2,7 millions liés à la sécurité), ces derniers restent significatifs. Nous avons observé que les grands aéroports, malgré un nombre élevé de retards, minimisent leur impact grâce à des systèmes de gestion performants, contrairement aux plus petits. Les retards affichent une saisonnalité marquée, particulièrement lors des périodes de vacances et festivals en 2022 et 2023, mettant en lumière l'effet de la demande sur les infrastructures. Concernant les compagnies aériennes, il apparaît que la majorité des retards découlent de vols précédents en retard, de la gestion de la compagnie et dans une moindre mesure de la NAS (National Aviation Services).
+
+Notre utilisation de l'Analyse en Composantes Principales (ACP) a permis de réduire la complexité des données, révélant une variable principale qui capture 94% de l'information, et soulignant la corrélation entre différents facteurs de retard. Néanmoins, nos tentatives de modélisation par régression linéaire pour prévoir le nombre de vols retardés ont montré leurs limites, indiquant l'échec des hypothèses de normalité et d'homoscédasticité des résidus. Même le modèle de régression de Poisson, bien que testé, n'a pas offert de meilleure performance, suggérant la nécessité de méthodes plus élaborées pour une prédiction précise.
+
+Cette recherche offre des perspectives importantes pour le secteur aérien américain, identifiant les causes principales des retards de vols et proposant des approches innovantes pour améliorer la fiabilité et l'efficacité du transport aérien. Nos découvertes et recommandations ambitionnent de diminuer les retards, offrant ainsi une expérience plus satisfaisante aux passagers et une meilleure gestion pour les aéroports et compagnies aériennes.
